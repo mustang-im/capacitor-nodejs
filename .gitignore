@@ -66,5 +66,10 @@ render.experimental.xml
 # Android Profiling
 *.hprof
 
+# Libnode
+android/libnode
+!android/libnode/.gitkeep
+tmp.zip
+
 # Hooks build
 hooks/*.js
