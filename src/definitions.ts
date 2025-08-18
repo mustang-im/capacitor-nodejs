@@ -27,6 +27,20 @@ declare module '@capacitor/cli' {
        * @example "manual"
        */
       startMode?: 'auto' | 'manual';
+
+      /**
+       * URL or local absolute path of the libnode to be used for Android
+       * 
+       * @default "https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-android.zip"
+       */
+      androidLibNode?: string;
+
+      /**
+       * Libnode architectures to be included in the APK
+       * 
+       * @default ["arm", "arm64", "x64"]
+       */
+      androidArchitectures?: Array<'arm' | 'arm64' | 'x64'>;
     };
   }
 }
