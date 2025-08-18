@@ -16,6 +16,7 @@
     "dist/",
     "ios/Plugin/",
     "electron/",
+    "hooks/dist/fetch-libnode.js",
     "CapacitorNodejs.podspec"
   ],
   "author": "Rene Hampölz",
@@ -50,7 +51,8 @@
     "watch": "tsc --watch",
     "pack:bridge": "cd assets/types/bridge && npm pack --pack-destination ../ && mv ../types-bridge-*.tgz ../bridge.tgz",
     "pack": "npm run pack:bridge && npm pack",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "capacitor:update:before": "node ./hooks/fetch-libnode.js"
   },
   "devDependencies": {
     "@capacitor/android": "^7.0.0",
