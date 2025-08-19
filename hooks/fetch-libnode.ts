@@ -1,5 +1,5 @@
 /// <reference types="../" />
-import { glob, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, glob, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import https from "node:https";
 import fs from "node:fs";
@@ -45,16 +45,20 @@ let archs: string[] = platform == 'android' ? Object.keys(AndroidArch) : [];
  */
 async function setupLib() {
   try {
-    if (!libDir?.startsWith("https://")) {
-      return;
-    }
-    let url = libDir;
-    libDir = path.join(packageDir, platform, 'libnode');
     // Should more than files because of .gitkeep
     if (!noLibCache && libNodesPresent(platform, archs)) {
       await removeUnusedLibs(platform, archs);
       return;
     }
+
+    if (!libDir?.startsWith("https://")) {
+      await copyLib();
+      await removeUnusedLibs(platform, archs);
+      return;
+    }
+
+    let url = libDir;
+    libDir = path.join(packageDir, platform, 'libnode');
 
     console.log('Downloading libnode...');
     let zipPath = await fetchLib(url);
@@ -73,6 +77,13 @@ async function setupLib() {
 
 const androidProject = path.join(packageDir, "android");
 const androidBinDir = path.join(androidProject, "libnode", "bin");
+
+async function copyLib() {
+  let destDir = path.join(packageDir, platform, 'libnode');
+  await cp(libDir, destDir, {recursive: true});
+  libDir = destDir;
+}
+
 function libNodesPresent(platform: string, archs: string[]) {
   if (platform == "android") {
     let validArchs = Object.entries(AndroidArch);
@@ -87,7 +98,6 @@ async function removeUnusedLibs(platform: string, archs: string[]) {
     let validArchs = Object.entries(AndroidArch);
     let selectedArchs = validArchs.filter((vArch) => archs.includes(vArch[0] as string));
     let deleteItems = (await readdir(androidBinDir)).filter((i) => !selectedArchs.some((a) => i == a[1]));
-    console.log(await readdir(path.join(androidBinDir)));
     await Promise.all(deleteItems.map((i) => rm(path.join(androidBinDir, i), {recursive: true})));
   }
 }
