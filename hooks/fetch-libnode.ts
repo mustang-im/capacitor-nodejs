@@ -43,7 +43,8 @@ async function setLibDir() {
     }
     let url = libDir;
     libDir = path.join(packageDir, platform, 'libnode');
-    if (!noLibCache && fs.readdirSync(libDir).length > 0) {
+    // Should more than files because of .gitkeep
+    if (!noLibCache && fs.readdirSync(libDir).length > 1) {
       return;
     }
 
