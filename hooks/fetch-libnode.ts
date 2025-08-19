@@ -43,7 +43,7 @@ async function setLibDir() {
     }
     let url = libDir;
     libDir = path.join(packageDir, platform, 'libnode');
-    if (!noLibCache && fs.readdirSync(libDir).length == 0) {
+    if (!noLibCache && fs.readdirSync(libDir).length > 0) {
       return;
     }
 
