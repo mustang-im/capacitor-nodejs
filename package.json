@@ -9,7 +9,7 @@
   "unpkg": "dist/plugin.js",
   "files": [
     "android/src/main/",
-    "android/libnode/",
+    "android/libnode/.gitkeep",
     "android/build.gradle",
     "android/CMakeLists.txt",
     "assets/",
