@@ -1,5 +1,5 @@
 /// <reference types="../" />
-import { glob } from "node:fs/promises";
+import { glob, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import https from "node:https";
 import fs from "node:fs";
@@ -29,14 +29,21 @@ const platform = process.env.CAPACITOR_PLATFORM_NAME ?? "web";
 const iosDefaultLib = 'https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-ios.zip';
 const androidDefaultLib = 'https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-android.zip';
 
+const AndroidArch = {
+  arm: "armeabi-v7a",
+  arm64: "arm64-v8a",
+  x64: "x86_64",
+}
+
 const noLibCache = process.env.NO_LIBNODE_CACHE;
 let libDir: string = platform == 'android' ? androidDefaultLib : iosDefaultLib;
+let archs: string[] = platform == 'android' ? Object.keys(AndroidArch) : [];
 
 /**
  * Sets the correct lib path for the platform and
  * fetches the lib if source is an `https://` url
  */
-async function setLibDir() {
+async function setupLib() {
   try {
     if (!libDir?.startsWith("https://")) {
       return;
@@ -44,7 +51,8 @@ async function setLibDir() {
     let url = libDir;
     libDir = path.join(packageDir, platform, 'libnode');
     // Should more than files because of .gitkeep
-    if (!noLibCache && fs.readdirSync(libDir).length > 1) {
+    if (!noLibCache && libNodesPresent(platform, archs)) {
+      await removeUnusedLibs(platform, archs);
       return;
     }
 
@@ -56,9 +64,30 @@ async function setLibDir() {
     await extractAsset(zipPath, libDir);
     console.log('Extraction finished!');
 
+    await removeUnusedLibs(platform, archs);
   } catch (ex) {
     console.error(ex);
     process.exit(0);
+  }
+}
+
+const androidBinDir = path.join(packageDir, "android", "libnode", "bin");
+function libNodesPresent(platform: string, archs: string[]) {
+  if (platform == "android") {
+    let validArchs = Object.entries(AndroidArch);
+    let selectedArchs = validArchs.filter((vArch) => archs.includes(vArch[0] as string));
+    return selectedArchs.every((arch) => fs.existsSync(path.join(androidBinDir, arch[1], "libnode.so")));
+  }
+  return false;
+}
+
+async function removeUnusedLibs(platform: string, archs: string[]) {
+  if (platform == "android") {
+    let validArchs = Object.entries(AndroidArch);
+    let selectedArchs = validArchs.filter((vArch) => archs.includes(vArch[0] as string));
+    let deleteItems = (await readdir(androidBinDir)).filter((i) => !selectedArchs.some((a) => i == a[1]));
+    console.log(await readdir(path.join(androidBinDir)));
+    await Promise.all(deleteItems.map((i) => rm(path.join(androidBinDir, i), {recursive: true})));
   }
 }
 
@@ -110,8 +139,9 @@ async function main() {
 
     let config: PluginsConfig["CapacitorNodeJS"] = await readConfig(path);
     libDir = config?.[`${platform}LibNode`] ?? libDir;
+    archs = config?.[`${platform}Architectures`] ?? archs;
 
-    await setLibDir();
+    await setupLib();
 
   } catch (ex) {
     console.error(ex);
