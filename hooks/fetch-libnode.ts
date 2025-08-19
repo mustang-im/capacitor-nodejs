@@ -107,8 +107,8 @@ async function main() {
       throw new Error("ERROR: Capacitor config not found");
     }
 
-    let config: PluginsConfig = await readConfig(path);
-    libDir = config.CapacitorNodeJS?.[`${platform}LibNode`] ?? libDir;
+    let config: PluginsConfig["CapacitorNodeJS"] = await readConfig(path);
+    libDir = config?.[`${platform}LibNode`] ?? libDir;
 
     await setLibDir();
 
