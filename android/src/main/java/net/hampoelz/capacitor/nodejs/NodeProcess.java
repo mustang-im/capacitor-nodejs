@@ -16,6 +16,8 @@ public class NodeProcess {
 
     private native void nativeSend(String channelName, String message);
 
+    private native void nativeStop();
+
     /** @noinspection unused*/
     private void nativeReceive(String channelName, String message) {
         receiveCallback.receive(channelName, message);
@@ -49,6 +51,10 @@ public class NodeProcess {
         }
 
         nativeStart(arguments, environmentVariables, true);
+    }
+
+    protected void stop() {
+        nativeStop();
     }
 
     protected interface ReceiveCallback {

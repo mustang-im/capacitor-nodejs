@@ -180,6 +180,10 @@ public class CapacitorNodeJS {
         engine.start();
     }
 
+    protected void stopEngine() {
+        nodeProcess.stop();
+    }
+
     protected void resolveWhenReady(PluginCall call) {
         if (!engineStatus.isStarted()) {
             call.reject("The Node.js engine has not been started yet.");
