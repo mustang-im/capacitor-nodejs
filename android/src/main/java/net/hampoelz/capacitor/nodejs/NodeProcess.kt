@@ -27,7 +27,7 @@ class NodeProcess {
 
     fun start(
         modulePath: String?,
-        parameter: Array<String?>,
+        parameter: Array<String>,
         env: MutableMap<String?, String?>,
         cachePath: String?
     ) {

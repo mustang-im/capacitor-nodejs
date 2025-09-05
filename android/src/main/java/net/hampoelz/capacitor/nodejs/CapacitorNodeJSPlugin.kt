@@ -124,9 +124,9 @@ class CapacitorNodeJSPlugin : Plugin() {
     //endregion
     //region PluginEvents
     //---------------------------------------------------------------------------------------
-    protected inner class PluginEventNotifier {
+    inner class PluginEventNotifier {
         // Bridge -------------------------------------------------------------------------------
-        protected fun channelReceive(eventName: String?, payloadArray: JSArray?) {
+        fun channelReceive(eventName: String?, payloadArray: JSArray?) {
             notifyChannelListeners(eventName, payloadArray)
         }
     }
@@ -145,9 +145,9 @@ class CapacitorNodeJSPlugin : Plugin() {
     //endregion
     companion object {
         const val LOGGER_TAG: String = "CapacitorNodeJS"
-        protected const val PREFS_TAG: String = "CapacitorNodeJS_PREFS"
-        protected const val PREFS_APP_UPDATED_TIME: String = "AppUpdateTime"
-        protected const val CHANNEL_NAME_APP: String = "APP_CHANNEL"
-        protected const val CHANNEL_NAME_EVENT: String = "EVENT_CHANNEL"
+        const val PREFS_TAG: String = "CapacitorNodeJS_PREFS"
+        const val PREFS_APP_UPDATED_TIME: String = "AppUpdateTime"
+        const val CHANNEL_NAME_APP: String = "APP_CHANNEL"
+        const val CHANNEL_NAME_EVENT: String = "EVENT_CHANNEL"
     }
 }

@@ -12,23 +12,24 @@ import net.hampoelz.capacitor.nodejs.CapacitorNodeJSPlugin.PluginEventNotifier
 import org.json.JSONException
 import org.json.JSONObject
 import java.io.IOException
+import androidx.core.content.edit
 
-class CapacitorNodeJS(
-    private val context: Context,
+class CapacitorNodeJS {
+    private lateinit var packageInfo: PackageInfo
+    private val context: Context
     private val eventNotifier: PluginEventNotifier
-) {
-    private val packageInfo: PackageInfo? = null
     private val preferences: SharedPreferences
     private val engineStatus = EngineStatus()
-    private val nodeProcess = NodeProcess(CapacitorNodeJS.ReceiveCallback())
+    private val nodeProcess = NodeProcess(this.ReceiveCallback())
 
-    init {
-        this.preferences =
-            context.getSharedPreferences(CapacitorNodeJSPlugin.PREFS_TAG, Context.MODE_PRIVATE)
+    constructor(context: Context, eventNotifier: PluginEventNotifier) {
+        this.context = context
+        this.preferences = context.getSharedPreferences(CapacitorNodeJSPlugin.PREFS_TAG, Context.MODE_PRIVATE)
+        this.eventNotifier = eventNotifier
 
         try {
             this.packageInfo =
-                context.getPackageManager().getPackageInfo(context.getPackageName(), 0)
+                context.packageManager.getPackageInfo(context.packageName, 0)
         } catch (e: NameNotFoundException) {
             Logger.error(
                 CapacitorNodeJSPlugin.LOGGER_TAG,
@@ -55,7 +56,7 @@ class CapacitorNodeJS(
             this.isReady = true
 
             while (!whenEngineReadyListeners.isEmpty()) {
-                val whenEngineReadyListener = whenEngineReadyListeners.get(0)
+                val whenEngineReadyListener = whenEngineReadyListeners[0]
                 whenEngineReadyListeners.removeAt(0)
                 whenEngineReadyListener.resolve()
             }
@@ -72,16 +73,14 @@ class CapacitorNodeJS(
 
     fun startEngine(
         call: PluginCall?,
-        projectDir: String?,
-        mainFile: String?,
-        args: Array<String?>?,
+        projectDir: String,
+        mainFile: String,
+        args: Array<String>,
         env: MutableMap<String?, String?>
     ) {
-        val callWrapper: Any? = object : Any() {
+        val callWrapper = object {
             fun resolve() {
-                if (call != null) {
-                    call.resolve()
-                }
+                call?.resolve()
             }
 
             fun reject(message: String?) {
@@ -108,8 +107,8 @@ class CapacitorNodeJS(
         engineStatus.setStarted()
 
         val engine = Thread(Runnable {
-            val filesPath = context.getFilesDir().getAbsolutePath()
-            val cachePath = context.getCacheDir().getAbsolutePath()
+            val filesPath = context.filesDir.absolutePath
+            val cachePath = context.cacheDir.absolutePath
 
             val basePath = FileOperations.combinePath(filesPath, "nodejs")
             val projectPath = FileOperations.combinePath(basePath, "public")
@@ -136,10 +135,10 @@ class CapacitorNodeJS(
                 )
             }
 
-            val projectPackageJsonPath = FileOperations.combinePath(projectPath, "package.json")
+            val projectPackageJsonPath = FileOperations.combinePath("package.json")
 
-            var projectMainFile: String? = "index.js"
-            if (mainFile != null && !mainFile.isEmpty()) {
+            var projectMainFile = "index.js"
+            if (!mainFile.isEmpty()) {
                 projectMainFile = mainFile
             } else if (FileOperations.existsPath(projectPackageJsonPath)) {
                 try {
@@ -175,7 +174,7 @@ class CapacitorNodeJS(
 
             val modulesPaths = FileOperations.combineEnv(projectPath, modulesPath)
 
-            val nodeEnv: MutableMap<String?, String?> = HashMap<String?, String?>()
+            val nodeEnv: MutableMap<String?, String?> = HashMap()
             nodeEnv.put("DATADIR", dataPath)
             nodeEnv.put("NODE_PATH", modulesPaths)
             nodeEnv.putAll(env)
@@ -228,13 +227,13 @@ class CapacitorNodeJS(
         nodeProcess.send(channelName, channelMessage)
     }
 
-    internal inner class ReceiveCallback : NodeProcess.ReceiveCallback {
+    inner class ReceiveCallback : NodeProcess.ReceiveCallback {
         override fun receive(channelName: String?, message: String?) {
             receiveMessage(channelName, message)
         }
     }
 
-    protected fun receiveMessage(channelName: String?, channelMessage: String?) {
+    fun receiveMessage(channelName: String?, channelMessage: String?) {
         try {
             val payload = JSObject(channelMessage)
 
@@ -261,13 +260,13 @@ class CapacitorNodeJS(
     }
 
     private fun copyNodeProjectFromAPK(
-        projectDir: String?,
-        projectPath: String?,
-        modulesPath: String?
+        projectDir: String,
+        projectPath: String,
+        modulesPath: String
     ): Boolean {
         val nodeAssetDir = FileOperations.combinePath("public", projectDir)
         val modulesAssetDir = FileOperations.combinePath("builtin_modules")
-        val assetManager = context.getAssets()
+        val assetManager = context.assets
 
         var success = true
         if (FileOperations.existsPath(projectPath) && this.isAppUpdated) {
@@ -289,14 +288,14 @@ class CapacitorNodeJS(
         get() {
             val previousLastUpdateTime =
                 preferences.getLong(CapacitorNodeJSPlugin.PREFS_APP_UPDATED_TIME, 0)
-            val lastUpdateTime = packageInfo!!.lastUpdateTime
+            val lastUpdateTime = packageInfo.lastUpdateTime
             return lastUpdateTime != previousLastUpdateTime
         }
 
     private fun saveAppUpdateTime() {
-        val lastUpdateTime = packageInfo!!.lastUpdateTime
-        val editor = preferences.edit()
-        editor.putLong(CapacitorNodeJSPlugin.PREFS_APP_UPDATED_TIME, lastUpdateTime)
-        editor.apply()
+        val lastUpdateTime = packageInfo.lastUpdateTime
+        preferences.edit {
+            putLong(CapacitorNodeJSPlugin.PREFS_APP_UPDATED_TIME, lastUpdateTime)
+        }
     }
 }
