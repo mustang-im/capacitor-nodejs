@@ -16,9 +16,7 @@ import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -30,8 +28,6 @@ class CapacitorNodeJS {
     private val preferences: SharedPreferences
     private val engineStatus = EngineStatus()
     private val nodeProcess = NodeProcess(this.ReceiveCallback())
-
-    private val coroutineScope = CoroutineScope(Dispatchers.IO)
 
     constructor(context: Context, eventNotifier: PluginEventNotifier) {
         this.context = context
@@ -118,88 +114,92 @@ class CapacitorNodeJS {
         }
         engineStatus.setStarted()
 
-        coroutineScope.launch withContext@{
+        CoroutineScope(Dispatchers.IO).launch {
             val filesPath = context.filesDir.absolutePath
             val cachePath = context.cacheDir.absolutePath
-
-            val basePath = FileOperations.combinePath(filesPath, "nodejs")
-            val projectPath = FileOperations.combinePath(basePath, "public")
-            val modulesPath = FileOperations.combinePath(basePath, "builtin_modules")
-            val dataPath = FileOperations.combinePath(basePath, "data")
-
-            val copyNodeProjectSuccess =
-                copyNodeProjectFromAPK(projectDir, projectPath, modulesPath)
-            if (!copyNodeProjectSuccess) {
-                callWrapper.reject("Unable to copy the Node.js project from APK.")
-                return@withContext
-            }
-
-            if (!FileOperations.existsPath(projectPath)) {
-                callWrapper.reject("Unable to access the Node.js project. (No such directory)")
-                return@withContext
-            }
-
-            val createDataDirSuccess = FileOperations.createDir(dataPath)
-            if (!createDataDirSuccess) {
-                Logger.debug(
-                    CapacitorNodeJSPlugin.LOGGER_TAG,
-                    "Unable to create a directory for persistent data storage."
-                )
-            }
-
-            val projectPackageJsonPath = FileOperations.combinePath(projectPath, "package.json")
-
-            var projectMainFile = "index.js"
-            if (mainFile != null && !mainFile.isEmpty()) {
-                projectMainFile = mainFile
-            } else if (FileOperations.existsPath(projectPackageJsonPath)) {
-                try {
-                    val projectPackageJsonData =
-                        FileOperations.readFileFromPath(projectPackageJsonPath)
-                    val projectPackageJson = JSONObject(projectPackageJsonData)
-                    val projectPackageJsonMainFile = projectPackageJson.getString("main")
-
-                    if (!projectPackageJsonMainFile.isEmpty()) {
-                        projectMainFile = projectPackageJsonMainFile
-                    }
-                } catch (e: JSONException) {
-                    callWrapper.reject(
-                        "Failed to read the package.json file of the Node.js project.",
-                        e
-                    )
-                    return@withContext
-                } catch (e: IOException) {
-                    callWrapper.reject(
-                        "Failed to read the package.json file of the Node.js project.",
-                        e
-                    )
-                    return@withContext
-                }
-            }
-
-            val projectMainPath = FileOperations.combinePath(projectPath, projectMainFile)
-
-            if (!FileOperations.existsPath(projectMainPath)) {
-                callWrapper.reject("Unable to access main script of the Node.js project. (No such file)")
-                return@withContext
-            }
-
-            val modulesPaths = FileOperations.combineEnv(projectPath, modulesPath)
-
             val nodeEnv: MutableMap<String?, String?> = HashMap()
-            nodeEnv.put("DATADIR", dataPath)
-            nodeEnv.put("NODE_PATH", modulesPaths)
-            nodeEnv.putAll(env)
-
-            nodeProcess.start(projectMainPath, args, nodeEnv, cachePath)
-            callWrapper.resolve()
+            var projectMainPath: String
 
             ensureActive()
+            withContext(Dispatchers.IO) {
+                val basePath = FileOperations.combinePath(filesPath, "nodejs")
+                val projectPath = FileOperations.combinePath(basePath, "public")
+                val modulesPath = FileOperations.combinePath(basePath, "builtin_modules")
+                val dataPath = FileOperations.combinePath(basePath, "data")
+
+                val copyNodeProjectSuccess =
+                    copyNodeProjectFromAPK(projectDir, projectPath, modulesPath)
+                if (!copyNodeProjectSuccess) {
+                    callWrapper.reject("Unable to copy the Node.js project from APK.")
+                    cancel()
+                }
+
+                if (!FileOperations.existsPath(projectPath)) {
+                    callWrapper.reject("Unable to access the Node.js project. (No such directory)")
+                    cancel()
+                }
+
+                val createDataDirSuccess = FileOperations.createDir(dataPath)
+                if (!createDataDirSuccess) {
+                    Logger.debug(
+                        CapacitorNodeJSPlugin.LOGGER_TAG,
+                        "Unable to create a directory for persistent data storage."
+                    )
+                }
+
+                val projectPackageJsonPath = FileOperations.combinePath(projectPath, "package.json")
+
+                var projectMainFile = "index.js"
+                if (mainFile != null && !mainFile.isEmpty()) {
+                    projectMainFile = mainFile
+                } else if (FileOperations.existsPath(projectPackageJsonPath)) {
+                    try {
+                        val projectPackageJsonData =
+                            FileOperations.readFileFromPath(projectPackageJsonPath)
+                        val projectPackageJson = JSONObject(projectPackageJsonData)
+                        val projectPackageJsonMainFile = projectPackageJson.getString("main")
+
+                        if (!projectPackageJsonMainFile.isEmpty()) {
+                            projectMainFile = projectPackageJsonMainFile
+                        }
+                    } catch (e: JSONException) {
+                        callWrapper.reject(
+                            "Failed to read the package.json file of the Node.js project.",
+                            e
+                        )
+                        cancel()
+                    } catch (e: IOException) {
+                        callWrapper.reject(
+                            "Failed to read the package.json file of the Node.js project.",
+                            e
+                        )
+                        cancel()
+                    }
+                }
+
+                projectMainPath = FileOperations.combinePath(projectPath, projectMainFile)
+
+                if (!FileOperations.existsPath(projectMainPath)) {
+                    callWrapper.reject("Unable to access main script of the Node.js project. (No such file)")
+                    cancel()
+                }
+
+                val modulesPaths = FileOperations.combineEnv(projectPath, modulesPath)
+
+                nodeEnv.put("DATADIR", dataPath)
+                nodeEnv.put("NODE_PATH", modulesPaths)
+                nodeEnv.putAll(env)
+            }
+
+            ensureActive()
+            withContext(Dispatchers.Default) {
+                nodeProcess.start(projectMainPath, args, nodeEnv, cachePath)
+                callWrapper.resolve()
+            }
         }
     }
 
     fun stopEngine() {
-        coroutineScope.cancel()
     }
 
     fun resolveWhenReady(call: PluginCall) {
