@@ -163,6 +163,7 @@ Java_net_hampoelz_capacitor_nodejs_NodeProcess_nativeStart(
     cacheClassObject = object;
 
     // Start node, with argc and argv.
+    printf("Starting Node.js from C++");
     auto exitCode = node::Start(argumentCount, argv);
     free(argsBuffer);
 

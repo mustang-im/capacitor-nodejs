@@ -2,14 +2,17 @@ package net.hampoelz.capacitor.nodejs;
 
 import android.system.ErrnoException;
 import android.system.Os;
+import android.util.Log;
 import com.getcapacitor.Logger;
 import java.util.Map;
 import java.util.Map.Entry;
 
 public class NodeProcess {
     static {
+        Log.d("Node.js", "Starting to load libraries");
         System.loadLibrary("native-lib");
         System.loadLibrary("node");
+        Log.d("Node.js", "Finished loading libraries");
     }
 
     private native int nativeStart(String[] arguments, String[][] environmentVariables, boolean redirectOutputToLogcat);
@@ -48,6 +51,7 @@ public class NodeProcess {
             envCount++;
         }
 
+        Log.d("Node.js","Starting Node.js from Java");
         nativeStart(arguments, environmentVariables, true);
     }
 
