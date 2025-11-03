@@ -1,0 +1,24 @@
+{
+  "name": "hooks",
+  "version": "1.0.0",
+  "description": "Hooks for capacitor-nodejs",
+  "license": "MIT",
+  "author": "Mustang GmbH",
+  "type": "module",
+  "main": "fetch-libnode.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "vite build",
+    "fetch-libnode": "node --experimental-strip-types ./fetch-libnode.js"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "glob": "^11.0.3"
+  },
+  "devDependencies": {
+    "@tsconfig/node-lts": "^22.0.2",
+    "@types/adm-zip": "^0.5.7",
+    "rollup-plugin-node-externals": "^8.0.1",
+    "vite": "^7.1.2"
+  }
+}
