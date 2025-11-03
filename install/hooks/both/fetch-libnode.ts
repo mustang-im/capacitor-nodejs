@@ -78,7 +78,7 @@ async function downloadNodeJS(url: string, retries = 5): Promise<string> {
         if (fileRes.statusCode == 302) {
           resolve(await downloadNodeJS(fileRes.headers.location as string, retries -= 1));
         }
-        const tmpPath = path.join(packageDir, "tmp.zip");
+        const tmpPath = path.join(packageDir, "nodejs.zip");
         const fileStream = fs.createWriteStream(tmpPath);
         fileRes.pipe(fileStream);
         fileStream.on('finish', () => {
