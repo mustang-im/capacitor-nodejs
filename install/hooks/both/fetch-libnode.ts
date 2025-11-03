@@ -35,31 +35,25 @@ let libDir: string = platform == 'android' ? androidDefaultLib : iosDefaultLib;
  * fetches the lib if source is an `https://` url
  */
 async function setupLib() {
-  try {
-    if (!forceDownloadNodeJS && await hasNodeJS(platform)) {
-      return;
-    }
-
-    if (!libDir?.startsWith("https://")) {
-      await copyNodeJS();
-      return;
-    }
-
-    let url = libDir;
-    libDir = path.join(packageDir, platform, 'libnode');
-
-    console.log('Downloading Node.js...');
-    let zipPath = await downloadNodeJS(url);
-    console.log('Download finished!');
-
-    console.log('Extracting Node.js...');
-    await extractAsset(zipPath, libDir);
-    console.log('Extraction finished!');
-
-  } catch (ex) {
-    console.error(ex);
-    process.exit(0);
+  if (!forceDownloadNodeJS && await hasNodeJS(platform)) {
+    return;
   }
+
+  if (!libDir?.startsWith("https://")) {
+    await copyNodeJS();
+    return;
+  }
+
+  let url = libDir;
+  libDir = path.join(packageDir, platform, 'libnode');
+
+  console.log('Downloading Node.js...');
+  let zipPath = await downloadNodeJS(url);
+  console.log('Download finished!');
+
+  console.log('Extracting Node.js...');
+  await extractAsset(zipPath, libDir);
+  console.log('Extraction finished!');
 }
 
 async function downloadNodeJS(url: string, retries = 5): Promise<string> {
@@ -125,12 +119,11 @@ async function main() {
     let config: PluginsConfig["CapacitorNodeJS"] = await readConfig(path);
     libDir = config?.[`${platform}LibNode`] ?? libDir;
 
-    await Promise.all([
-      setupLib(),
-    ]);
+    await setupLib();
 
   } catch (ex) {
     console.error(ex);
+    process.exit(1);
   }
 }
 
