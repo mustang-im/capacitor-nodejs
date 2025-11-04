@@ -1,2 +1,2 @@
-# Include prebuilt node libraries
-!libnode/bin/
+libnode/bin/
+libnode/include/

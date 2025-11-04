@@ -65,3 +65,6 @@ render.experimental.xml
 
 # Android Profiling
 *.hprof
+
+# Temporary zip files
+*.zip

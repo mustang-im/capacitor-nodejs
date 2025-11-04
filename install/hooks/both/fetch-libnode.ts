@@ -6,7 +6,7 @@ import AdmZip from "adm-zip";
 import { PluginsConfig } from "@capacitor/cli";
 
 const __dirname = import.meta.dirname;
-const packageDir = path.resolve(__dirname, "../");
+const packageDir = path.resolve(__dirname, "../../../");
 const projectDir = path.resolve(packageDir, "../../");
 
 async function getConfigPath() {
@@ -94,7 +94,7 @@ async function extractAsset(zipPath: string, destinationPath: string) {
 
 async function hasNodeJS(platform: string) {
   if (platform == 'android') {
-    return fs.existsSync(path.join(packageDir, 'android', 'libnode'));
+    return fs.existsSync(path.join(packageDir, 'android/libnode/bin'));
   } else if (platform == 'ios') {
     return fs.existsSync(path.join(packageDir, 'ios', 'libnode'));
   }
