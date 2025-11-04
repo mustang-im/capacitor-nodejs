@@ -4,6 +4,8 @@
         "lib": [ "dom", "es2020" ],
         "module": "commonjs",
         "target": "es2017",
+        "skipLibCheck": true,
+        "typeRoots": ["../node_modules/@types", "../types"],
 
         "declaration": true,
         "sourceMap": true,
