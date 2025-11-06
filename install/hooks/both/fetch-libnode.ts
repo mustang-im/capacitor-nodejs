@@ -1,27 +1,10 @@
 import path from "node:path";
 import https from "https";
-import { glob, cp } from "fs/promises";
+import { cp } from "fs/promises";
 import fs from "node:fs";
 import AdmZip from "adm-zip";
 import { PluginsConfig } from "@capacitor/cli";
-
-const __dirname = import.meta.dirname;
-const packageDir = path.resolve(__dirname, "../../../");
-const projectDir = path.resolve(packageDir, "../../");
-
-async function getConfigPath() {
-  for await (let path of glob(`${projectDir}/**/capacitor.config.{ts,json}`)) {
-    if (path) {
-      return path;
-    }
-  }
-}
-
-async function readConfig(path: string) {
-  let file = await import(path);
-  let config = file.default.plugins.CapacitorNodeJS;
-  return config;
-}
+import { packageDir, getConfigPath, readConfig } from "./util";
 
 const platform = process.env.CAPACITOR_PLATFORM_NAME ?? "web";
 const iosDefaultLib = 'https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-ios.zip';
@@ -34,7 +17,7 @@ let libDir: string = platform == 'android' ? androidDefaultLib : iosDefaultLib;
  * Sets the correct lib path for the platform and
  * fetches the lib if source is an `https://` url
  */
-async function setupLib() {
+async function setupLib(libDir: string, platform: string) {
   if (!forceDownloadNodeJS && await hasNodeJS(platform)) {
     return;
   }
@@ -119,7 +102,7 @@ async function main() {
     let config: PluginsConfig["CapacitorNodeJS"] = await readConfig(path);
     libDir = config?.[`${platform}LibNode`] ?? libDir;
 
-    await setupLib();
+    await setupLib(platform, libDir);
 
   } catch (ex) {
     console.error(ex);
