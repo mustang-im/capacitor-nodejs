@@ -4,6 +4,8 @@
     "typeRoots": [
       "./node_modules/@types",
       "../dist"
-    ]
+    ],
+    "module": "ESNext",
+    "moduleResolution": "bundler"
   }
 }
