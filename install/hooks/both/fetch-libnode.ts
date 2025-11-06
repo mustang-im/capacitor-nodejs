@@ -17,7 +17,7 @@ let libDir: string = platform == 'android' ? androidDefaultLib : iosDefaultLib;
  * Sets the correct lib path for the platform and
  * fetches the lib if source is an `https://` url
  */
-async function setupLib(libDir: string, platform: string) {
+export async function setupLib(libDir: string, platform: string) {
   if (!forceDownloadNodeJS && await hasNodeJS(platform)) {
     return;
   }
