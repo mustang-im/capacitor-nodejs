@@ -20,6 +20,7 @@
     "@tsconfig/node-lts": "^22.0.2",
     "@types/adm-zip": "^0.5.7",
     "rollup-plugin-node-externals": "^8.0.1",
-    "vite": "^7.1.2"
+    "vite": "^7.1.2",
+    "vite-plugin-static-copy": "^3.1.4"
   }
 }

@@ -1,12 +1,21 @@
 import { defineConfig } from 'vite';
 import nodeExternals from 'rollup-plugin-node-externals';
 import { resolve } from 'path';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 export default defineConfig({
   plugins: [
     nodeExternals({
       deps: false,
       devDeps: true,
+    }),
+    viteStaticCopy({
+      targets: [
+        {
+          src: 'run-hooks.js',
+          dest: './',
+        },
+      ],
     }),
   ],
   build: {

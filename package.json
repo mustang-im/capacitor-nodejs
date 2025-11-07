@@ -14,6 +14,7 @@
     "android/CMakeLists.txt",
     "assets/",
     "dist/",
+    "install/hooks/dist/",
     "ios/Plugin/",
     "electron/",
     "CapacitorNodejs.podspec"
@@ -52,8 +53,8 @@
     "pack:bridge": "cd assets/types/bridge && npm pack --pack-destination ../ && mv ../types-bridge-*.tgz ../bridge.tgz",
     "pack": "npm run pack:bridge && npm pack",
     "prepublishOnly": "npm run build",
-    "capacitor:sync:after": "node install/hooks/dist/after-prepare-native-modules-preference.js && node install/hooks/dist/after-prepare-patch-npm-packages.js && node install/hooks/dist/after-prepare-build-node-assets-lists.js && node install/hooks/dist/after-prepare-create-macOS-builder-helper.js",
-    "capacitor:copy:after": "node install/hooks/dist/after-prepare-native-modules-preference.js && node install/hooks/dist/after-prepare-patch-npm-packages.js && node install/hooks/dist/after-prepare-build-node-assets-lists.js && node install/hooks/dist/after-prepare-create-macOS-builder-helper.js"
+    "capacitor:sync:after": "node node_modules/capacitor-nodejs/install/hooks/dist/run-hooks.js",
+    "capacitor:copy:after": "node node_modules/capacitor-nodejs/install/hooks/dist/run-hooks.js"
   },
   "devDependencies": {
     "@capacitor/android": "^7.0.0",
