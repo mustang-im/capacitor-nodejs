@@ -78,6 +78,7 @@ import org.gradle.util.GradleVersion
     // Capture rootProject values during configuration phase for configuration cache compatibility
     def rootBuildDir = rootProject.buildDir
     def rootProjectDir = rootProject.projectDir
+    def pluginProjectDir = project.projectDir
 
     if (android.defaultConfig.ndk.abiFilters == null) {
         // No abiFilter is defined for the build. Set it to the supported architectures.
@@ -294,10 +295,6 @@ import org.gradle.util.GradleVersion
                 outputs.dir("${buildDir}/${nodeDir}/")
 
                 workingDir "${buildDir}/${nodeDir}/"
-                commandLine npmCommandName, '--verbose', 'rebuild', '--build-from-source'
-
-                environment 'npm_config_node_engine', 'v8'
-                environment 'npm_config_nodedir', "${project.projectDir}/libs/cdvnodejsmobile/libnode/"
 
                 // Look for nodejs-mobile-gyp in yarn/node_modules locations only
                 // 1. Plugin's node_modules (when installed normally)
@@ -325,6 +322,41 @@ import org.gradle.util.GradleVersion
                     throw new GradleException("Could not find nodejs-mobile-gyp. This plugin only supports yarn (not pnpm). Checked: ${pluginGypPath}, ${rootGypPath}, ${linkedGypPath}, ${distGypPath}")
                 }
 
+                // Ensure nodejs-mobile-gyp is used instead of regular node-gyp
+                doFirst {
+                    def buildNodeModules = new File("${buildDir}/${nodeDir}/node_modules")
+                    if (buildNodeModules.exists()) {
+                        // Create symlink to nodejs-mobile-gyp in node_modules/.bin so npm uses it
+                        def binDir = new File(buildNodeModules, ".bin")
+                        if (!binDir.exists()) {
+                            binDir.mkdirs()
+                        }
+                        def nodeGypLink = new File(binDir, "node-gyp")
+                        def nodeGypJsLink = new File(binDir, "node-gyp.js")
+                        def absoluteGypPath = new File(npmGypPath).absolutePath
+
+                        // Remove existing links if they exist
+                        if (nodeGypLink.exists()) nodeGypLink.delete()
+                        if (nodeGypJsLink.exists()) nodeGypJsLink.delete()
+
+                        // Create symlinks to nodejs-mobile-gyp
+                        java.nio.file.Files.createSymbolicLink(
+                            nodeGypLink.toPath(),
+                            new File(absoluteGypPath).toPath()
+                        )
+                        java.nio.file.Files.createSymbolicLink(
+                            nodeGypJsLink.toPath(),
+                            new File(absoluteGypPath).toPath()
+                        )
+                        logger.info("Created symlinks to nodejs-mobile-gyp at ${absoluteGypPath}")
+                    }
+                }
+
+                commandLine npmCommandName, '--verbose', 'rebuild', '--build-from-source'
+
+                environment 'npm_config_node_engine', 'v8'
+                // Use libnode directory - it's in android/libnode
+                environment 'npm_config_nodedir', "${pluginProjectDir}/libnode"
                 environment 'npm_config_node_gyp', npmGypPath
                 environment 'npm_config_arch', tempArch
                 environment 'npm_config_platform', 'android'
