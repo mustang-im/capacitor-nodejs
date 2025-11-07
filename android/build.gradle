@@ -187,9 +187,14 @@ tasks.register("capPostBuildExtras") {
             def npmToolchainCxx = "${standaloneToolchain}/bin/${tempSuffix}-clang++"
             def npmToolchainLink = "${standaloneToolchain}/bin/${tempSuffix}-clang++"
 
-            def hostOs = OperatingSystem.current().isMacOsX() ? 'mac' : 
-                        OperatingSystem.current().isLinux() ? 'linux' : 
-                        throw new GradleException("Unsupported operating system for nodejs-mobile native builds: ${OperatingSystem.current().getName()}")
+            def hostOs
+            if (OperatingSystem.current().isMacOsX()) {
+                hostOs = 'mac'
+            } else if (OperatingSystem.current().isLinux()) {
+                hostOs = 'linux'
+            } else {
+                throw new GradleException("Unsupported operating system for nodejs-mobile native builds: ${OperatingSystem.current().getName()}")
+            }
             def npmGypDefines = "target_arch=${tempArch} v8_target_arch=${tempV8Arch} android_target_arch=${tempArch} host_os=${hostOs} OS=android"
 
             tasks.register("CopyNodeProjectAssets${abiName}") {
