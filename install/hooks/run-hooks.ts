@@ -24,7 +24,7 @@ const hooks = [
   'after-prepare-create-macOS-builder-helper.js',
 ];
 
-async function runHook(hookFile) {
+async function runHook(hookFile: string): Promise<{ success: boolean; code?: number; error?: string }> {
   const hookPath = join(hooksDir, hookFile);
   
   if (!existsSync(hookPath)) {
@@ -39,7 +39,7 @@ async function runHook(hookFile) {
     });
     
     child.on('close', (code) => {
-      resolve({ success: code === 0, code });
+      resolve({ success: code === 0, code: code ?? undefined });
     });
     
     child.on('error', (error) => {
@@ -49,7 +49,7 @@ async function runHook(hookFile) {
   });
 }
 
-async function runAllHooks() {
+async function runAllHooks(): Promise<void> {
   for (const hook of hooks) {
     const result = await runHook(hook);
     if (!result.success) {

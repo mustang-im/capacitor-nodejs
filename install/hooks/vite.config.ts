@@ -1,25 +1,12 @@
 import { defineConfig } from 'vite';
-import nodeExternals from 'rollup-plugin-node-externals';
 import { resolve } from 'path';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 export default defineConfig({
-  plugins: [
-    nodeExternals({
-      deps: false,
-      devDeps: true,
-    }),
-    viteStaticCopy({
-      targets: [
-        {
-          src: 'run-hooks.js',
-          dest: './',
-        },
-      ],
-    }),
-  ],
+  plugins: [],
   build: {
     outDir: './dist',
+    ssr: true, // Build for Node.js (SSR mode)
     rollupOptions: {
       input: {
         'fetch-libnode': resolve(__dirname, 'both/fetch-libnode.ts'),
@@ -27,10 +14,15 @@ export default defineConfig({
         'after-prepare-patch-npm-packages': resolve(__dirname, 'both/after-prepare-patch-npm-packages.ts'),
         'after-prepare-build-node-assets-lists': resolve(__dirname, 'android/after-prepare-build-node-assets-lists.ts'),
         'after-prepare-create-macOS-builder-helper': resolve(__dirname, 'android/after-prepare-create-macOS-builder-helper.ts'),
+        'run-hooks': resolve(__dirname, 'run-hooks.ts'),
       },
       output: {
         format: 'es',
         entryFileNames: '[name].js',
+      },
+      external: (id) => {
+        // Externalize node built-ins and @capacitor/cli (available in user's node_modules)
+        return id.startsWith('node:') || id === '@capacitor/cli/dist/config.js' || id.startsWith('@capacitor/cli');
       },
     },
     minify: 'esbuild',
