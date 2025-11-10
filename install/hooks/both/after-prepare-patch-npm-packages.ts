@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 // @ts-ignore - loadConfig is not exported in types but exists in the package
 import { loadConfig } from '@capacitor/cli/dist/config.js';
@@ -8,10 +8,10 @@ import { loadConfig } from '@capacitor/cli/dist/config.js';
 // for mobile, this substitution will have different values at
 // build time and runtime, so we pre-substitute them with fixed
 // values.
-function patchPackageJSON_preNodeGyp_modulePath(filePath: string) {
-  let packageReadData = fs.readFileSync(filePath, 'utf8');
-  let packageJSON = JSON.parse(packageReadData);
-  if ( packageJSON && packageJSON.binary && packageJSON.binary.module_path ) {
+async function patchPackageJSON_preNodeGyp_modulePath(filePath: string): Promise<void> {
+  const packageReadData = await fs.readFile(filePath, 'utf8');
+  const packageJSON = JSON.parse(packageReadData);
+  if (packageJSON?.binary?.module_path) {
     let binaryPathConfiguration = packageJSON.binary.module_path;
     binaryPathConfiguration = binaryPathConfiguration.replace(/\{node_abi\}/g, "node_abi");
     binaryPathConfiguration = binaryPathConfiguration.replace(/\{platform\}/g, "platform");
@@ -19,34 +19,34 @@ function patchPackageJSON_preNodeGyp_modulePath(filePath: string) {
     binaryPathConfiguration = binaryPathConfiguration.replace(/\{target_arch\}/g, "target_arch");
     binaryPathConfiguration = binaryPathConfiguration.replace(/\{libc\}/g, "libc");
     packageJSON.binary.module_path = binaryPathConfiguration;
-    let packageWriteData = JSON.stringify(packageJSON, null, 2);
-    fs.writeFileSync(filePath, packageWriteData);
+    const packageWriteData = JSON.stringify(packageJSON, null, 2);
+    await fs.writeFile(filePath, packageWriteData);
   }
 }
 
-// Visits every package.json to apply patches.
-function visitPackageJSON(folderPath: string) {
-  let files = fs.readdirSync(folderPath);
-  for (var i in files) {
-    let name = files[i];
-    let filePath = path.join(folderPath, files[i]);
-    if(fs.statSync(filePath).isDirectory()) {
-      visitPackageJSON(filePath);
-    } else {
-      if (name === 'package.json') {
-        try {
-          patchPackageJSON_preNodeGyp_modulePath(filePath);
-        } catch (e) {
+// Visits every package.json to apply patches in parallel.
+async function visitPackageJSON(folderPath: string): Promise<void> {
+  const entries = await fs.readdir(folderPath, { withFileTypes: true });
+  
+  const tasks: Promise<void>[] = [];
+  
+  for (const entry of entries) {
+    const filePath = path.join(folderPath, entry.name);
+    
+    if (entry.isDirectory()) {
+      tasks.push(visitPackageJSON(filePath));
+    } else if (entry.name === 'package.json') {
+      tasks.push(
+        patchPackageJSON_preNodeGyp_modulePath(filePath).catch((e) => {
           console.warn(
-            'Failed to patch the file : "' +
-            filePath +
-            '". The following error was thrown: ' +
-            JSON.stringify(e)
+            `Failed to patch the file: "${filePath}". The following error was thrown: ${JSON.stringify(e)}`
           );
-        }
-      }
+        })
+      );
     }
   }
+  
+  await Promise.all(tasks);
 }
 
 // Gets the platform's www path using Capacitor config.
@@ -73,8 +73,7 @@ async function getPlatformWWWPath(platform: string, config: any): Promise<string
 }
 
 // Applies the patch to the selected platform
-async function patchTargetPlatform(platform: string) {
-  const config = await loadConfig();
+async function patchTargetPlatform(platform: string, config: any): Promise<void> {
   const wwwPath = await getPlatformWWWPath(platform, config);
   
   // Get the nodeDir from plugin config (defaults to "nodejs")
@@ -82,20 +81,30 @@ async function patchTargetPlatform(platform: string) {
   const nodeDir = pluginConfig?.nodeDir || 'nodejs';
   
   const nodeModulesPathToPatch = path.join(wwwPath, nodeDir, 'node_modules');
-  if (fs.existsSync(nodeModulesPathToPatch)) {
-    visitPackageJSON(nodeModulesPathToPatch);
+  try {
+    await fs.access(nodeModulesPathToPatch);
+    await visitPackageJSON(nodeModulesPathToPatch);
+  } catch {
+    // Directory doesn't exist, skip patching
   }
 }
 
-export default async function() {
+export default async function(): Promise<void> {
   // Get platforms from environment variable or process all
   const platformEnv = process.env.CAPACITOR_PLATFORM_NAME;
   
+  // Load config once and reuse for all platforms
+  const config = await loadConfig();
+  
+  const tasks: Promise<void>[] = [];
+  
   if (platformEnv === 'android' || !platformEnv) {
-    await patchTargetPlatform('android');
+    tasks.push(patchTargetPlatform('android', config));
   }
   
   if (platformEnv === 'ios' || !platformEnv) {
-    await patchTargetPlatform('ios');
+    tasks.push(patchTargetPlatform('ios', config));
   }
+  
+  await Promise.all(tasks);
 }
