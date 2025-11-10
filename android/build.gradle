@@ -255,10 +255,17 @@ import org.gradle.util.GradleVersion
             def hostOsGyp = OperatingSystem.current().isMacOsX() ? 'mac' : (OperatingSystem.current().isLinux() ? 'linux' : 'windows')
             def npmGypDefines = "target_arch=${tempArch} v8_target_arch=${tempV8Arch} android_target_arch=${tempArch} host_os=${hostOsGyp} OS=android"
 
-            tasks.register("CopyNodeProjectAssets${abiName}") {
+            tasks.register("CopyNodeProjectAssets${abiName}", Copy) {
                 description = "Copying node assets to build native modules for ${abiName}."
                 def nodeDirPath = file("${projectWWW}/${nodeDir}/")
                 def buildDirPath = "${rootBuildDir}/nodejs-native-assets-temp-build/nodejs-native-assets-${abiName}/"
+
+                from nodeDirPath
+                into new File(buildDirPath, nodeDir)
+                // Symlinks to binaries are resolved by Capacitor sync and Gradle during the copy, causing build time errors.
+                // The original project's .bin folder will be added to the path while building in the BuildNpmModules tasks.
+                exclude "**/.bin"
+
                 inputs.files fileTree(dir: nodeDirPath).exclude { details ->
                     // We shouldn't need to rebuild native code if there are only changes in the Node.js project javascript files.
                     !details.isDirectory() &&
@@ -267,35 +274,29 @@ import org.gradle.util.GradleVersion
                 }
                 outputs.file("${buildDirPath}/copy.timestamp")
 
-                // Capture project reference during configuration phase for configuration cache compatibility
-                def projectRef = project
-
-                doLast {
+                doFirst {
                     def buildDir = new File(buildDirPath)
                     if (buildDir.exists()) {
                         buildDir.deleteDir()
                     }
+                }
 
-                    projectRef.copy {
-                        from nodeDirPath
-                        into new File(buildDir, nodeDir)
-                        // Symlinks to binaries are resolved by Capacitor sync and Gradle during the copy, causing build time errors.
-                        // The original project's .bin folder will be added to the path while building in the BuildNpmModules tasks.
-                        exclude "**/.bin"
-                    }
+                doLast {
 
                     if (OperatingSystem.current().isMacOsX()) {
                         // Copy the helper script for calling npm when building in Android Studio on macOS.
                         def helperScript = new File(projectWWW, "build-native-modules-MacOS-helper-script.sh")
                         if (helperScript.exists()) {
-                            project.copy {
-                                from helperScript
-                                into buildDir
+                            def targetScript = new File(buildDirPath, helperScript.name)
+                            helperScript.withInputStream { input ->
+                                targetScript.withOutputStream { output ->
+                                    output << input
+                                }
                             }
                         }
                     }
 
-                    new File(buildDir, "copy.timestamp").text = new Date().format('yyyy-MM-dd HH:mm:ss')
+                    new File(buildDirPath, "copy.timestamp").text = new Date().format('yyyy-MM-dd HH:mm:ss')
                 }
             }
 
@@ -418,7 +419,9 @@ import org.gradle.util.GradleVersion
                     // Use new File() instead of file() for configuration cache compatibility
                     def fileListPath = new File(assetsDir, "file.list")
                     def dirListPath = new File(assetsDir, "dir.list")
-                    delete fileListPath, dirListPath
+                    // Use File.delete() instead of Gradle's delete() for configuration cache compatibility
+                    if (fileListPath.exists()) fileListPath.delete()
+                    if (dirListPath.exists()) dirListPath.delete()
 
                     def fileList = new StringBuilder()
                     def dirList = new StringBuilder()
