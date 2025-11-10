@@ -77,11 +77,41 @@ import org.gradle.util.GradleVersion
     def rootProjectDir = rootProject.projectDir
     def pluginProjectDir = project.projectDir
 
-    if (android.defaultConfig.ndk.abiFilters == null || android.defaultConfig.ndk.abiFilters.isEmpty()) {
+    // Get ABI filters from the app project's build.gradle file
+    // Read the app's build.gradle to find abiFilters setting
+    def appBuildGradle = file("${rootProjectDir}/app/build.gradle")
+    def abiFilters = null
+
+    if (appBuildGradle.exists()) {
+        def buildGradleContent = appBuildGradle.text
+        // Look for ndk { abiFilters ... } pattern - match single or multiple filters
+        // Pattern: abiFilters 'arm64-v8a', 'x86_64' or abiFilters 'arm64-v8a'
+        def abiFiltersMatch = buildGradleContent =~ /abiFilters\s+['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]+)['"])?/
+        if (abiFiltersMatch.find()) {
+            def filters = []
+            if (abiFiltersMatch.group(1)) filters.add(abiFiltersMatch.group(1))
+            if (abiFiltersMatch.group(2)) filters.add(abiFiltersMatch.group(2))
+            if (!filters.isEmpty()) {
+                abiFilters = filters as Set<String>
+                logger.info("capacitor-nodejs: Found ABI filters from app build.gradle: ${abiFilters}")
+            }
+        }
+    }
+
+    // If no ABI filters found, check the plugin's android config (for backwards compatibility)
+    if (abiFilters == null && android.defaultConfig.ndk.abiFilters != null && !android.defaultConfig.ndk.abiFilters.isEmpty()) {
+        abiFilters = android.defaultConfig.ndk.abiFilters
+    }
+
+    // If still no ABI filters, set defaults
+    if (abiFilters == null || abiFilters.isEmpty()) {
         // No abiFilter is defined for the build. Set it to the supported architectures.
         logger.warn("capacitor-nodejs detected no ABI filters were set. Will use [\"armeabi-v7a\", \"x86\", \"arm64-v8a\", \"x86_64\"].")
-        android.defaultConfig.ndk.abiFilters = ["armeabi-v7a", "x86", "arm64-v8a", "x86_64"] as Set<String>
+        abiFilters = ["armeabi-v7a", "x86", "arm64-v8a", "x86_64"] as Set<String>
     }
+
+    // Set the ABI filters on plugin
+    android.defaultConfig.ndk.abiFilters = abiFilters
 
     // Configure androidResources to exclude certain files from the APK
     android.androidResources {
@@ -407,10 +437,18 @@ import org.gradle.util.GradleVersion
             }
 
             // Copy Android-built .node files to the app's assets to replace non-Android versions (macOS, Linux, Windows)
+            // Note: Only copy the primary ABI (arm64-v8a) since .node files in assets are not architecture-split
+            // The AAB will be split by Google Play per device architecture, so each device gets the correct version
             // This works on both macOS and Linux build systems
             tasks.register("CopyAndroidNodeFilesToAppAssets${abiName}", Copy) {
                 dependsOn "CopyBuiltNpmAssets${abiName}"
                 description = "Copy Android-built .node files for ${abiName} to app assets to replace non-Android versions"
+
+                // Depend on all CopyNodeProjectAssets tasks to ensure they all complete first
+                // This avoids conflicts when multiple ABIs read from the same source directory
+                android.defaultConfig.ndk.abiFilters.each { otherAbi ->
+                    dependsOn "CopyNodeProjectAssets${otherAbi}"
+                }
 
                 def sourceDir = file("${rootBuildDir}/nodejs-native-assets/nodejs-native-assets-${abiName}/node_modules")
                 def targetDir = file("${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}/node_modules")
@@ -431,8 +469,34 @@ import org.gradle.util.GradleVersion
                     }
                 }
 
+                // Only copy for the primary ABI (arm64-v8a) since assets are not architecture-split
+                // For AABs, Google Play splits per device architecture, so each device gets the correct ABI
                 onlyIf {
-                    sourceDir.exists()
+                    sourceDir.exists() && abiName == 'arm64-v8a'
+                }
+            }
+
+            // Set up task dependencies after all tasks are registered
+            // Make tasks for different ABIs run sequentially to avoid conflicts when writing to the same directory
+            gradle.projectsEvaluated {
+                def thisTask = project.tasks.findByName("CopyAndroidNodeFilesToAppAssets${abiName}")
+                if (thisTask != null) {
+                    // Determine order based on ABI name
+                    def abiOrder = ['arm64-v8a': 1, 'x86_64': 2, 'armeabi-v7a': 3, 'x86': 4]
+                    def thisOrder = abiOrder[abiName] ?: 99
+
+                    // Make this task depend on all previous ABI tasks
+                    android.defaultConfig.ndk.abiFilters.each { otherAbi ->
+                        if (otherAbi != abiName) {
+                            def otherOrder = abiOrder[otherAbi] ?: 99
+                            if (otherOrder < thisOrder) {
+                                def otherTask = project.tasks.findByName("CopyAndroidNodeFilesToAppAssets${otherAbi}")
+                                if (otherTask != null) {
+                                    thisTask.dependsOn otherTask
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
