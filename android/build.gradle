@@ -430,13 +430,31 @@ import org.gradle.util.GradleVersion
                     def fileList = new StringBuilder()
                     def dirList = new StringBuilder()
 
-                    fileTree(dir: assetsDir).visit { assetFile ->
-                        if (assetFile.isDirectory()) {
-                            dirList.append("${assetFile.relativePath}\n")
-                        } else {
-                            fileList.append("${assetFile.relativePath}\n")
+                    // Use Java File API for configuration cache compatibility
+                    def assetsDirFile = assetsDir instanceof File ? assetsDir : new File(assetsDir.toString())
+                    def basePath = assetsDirFile.absolutePath
+
+                    // Use Files.walkFileTree for recursive directory traversal (configuration cache compatible)
+                    java.nio.file.Files.walkFileTree(assetsDirFile.toPath(), new java.nio.file.FileVisitor<java.nio.file.Path>() {
+                        java.nio.file.FileVisitResult preVisitDirectory(java.nio.file.Path dir, java.nio.file.attribute.BasicFileAttributes attrs) {
+                            if (dir != assetsDirFile.toPath()) {
+                                def relativePath = basePath.length() > 0 ? dir.toString().substring(basePath.length() + 1) : dir.toString()
+                                dirList.append("${relativePath}\n")
+                            }
+                            return java.nio.file.FileVisitResult.CONTINUE
                         }
-                    }
+                        java.nio.file.FileVisitResult visitFile(java.nio.file.Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                            def relativePath = basePath.length() > 0 ? file.toString().substring(basePath.length() + 1) : file.toString()
+                            fileList.append("${relativePath}\n")
+                            return java.nio.file.FileVisitResult.CONTINUE
+                        }
+                        java.nio.file.FileVisitResult visitFileFailed(java.nio.file.Path file, java.io.IOException exc) {
+                            return java.nio.file.FileVisitResult.CONTINUE
+                        }
+                        java.nio.file.FileVisitResult postVisitDirectory(java.nio.file.Path dir, java.io.IOException exc) {
+                            return java.nio.file.FileVisitResult.CONTINUE
+                        }
+                    })
 
                     fileListPath.text = fileList.toString()
                     dirListPath.text = dirList.toString()
@@ -465,6 +483,9 @@ import org.gradle.util.GradleVersion
                 def targetDirPath = "${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}/node_modules"
                 def targetDir = file(targetDirPath)
 
+                // Capture logger during configuration phase for configuration cache compatibility
+                def taskLogger = logger
+
                 from sourceDir
                 into targetDir
                 include "**/*.node"
@@ -477,9 +498,9 @@ import org.gradle.util.GradleVersion
                 eachFile { fileCopyDetails ->
                     // Preserve the relative path structure
                     def relativePathStr = fileCopyDetails.relativePath.toString()
-                    def targetFile = new File(targetDir, relativePathStr)
+                    def targetFile = new File(targetDirPath, relativePathStr)
                     if (targetFile.exists()) {
-                        logger.info("Replacing ${relativePathStr} with Android-built version for ${abiName}")
+                        taskLogger.info("Replacing ${relativePathStr} with Android-built version for ${abiName}")
                     }
                 }
 
@@ -513,7 +534,7 @@ import org.gradle.util.GradleVersion
                         prebuildsDirs.each { dir ->
                             if (dir.exists()) {
                                 dir.deleteDir()
-                                logger.info("Removed prebuilds directory: ${dir.absolutePath}")
+                                taskLogger.info("Removed prebuilds directory: ${dir.absolutePath}")
                             }
                         }
                     }
