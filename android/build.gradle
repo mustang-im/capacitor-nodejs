@@ -82,19 +82,115 @@ import org.gradle.util.GradleVersion
     def appBuildGradle = file("${rootProjectDir}/app/build.gradle")
     def abiFilters = null
 
+    // Check if splits.abi is enabled in app's build.gradle
+    def splitsEnabled = false
+    def splitAbis = null
+    def universalApkEnabled = false
+
+    // ALWAYS parse the file first to detect splits (most reliable method)
+    // This must happen before we try to set ndk.abiFilters to avoid conflicts
     if (appBuildGradle.exists()) {
         def buildGradleContent = appBuildGradle.text
-        // Look for ndk { abiFilters ... } pattern - match single or multiple filters
-        // Pattern: abiFilters 'arm64-v8a', 'x86_64' or abiFilters 'arm64-v8a'
-        def abiFiltersMatch = buildGradleContent =~ /abiFilters\s+['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]+)['"])?/
-        if (abiFiltersMatch.find()) {
-            def filters = []
-            if (abiFiltersMatch.group(1)) filters.add(abiFiltersMatch.group(1))
-            if (abiFiltersMatch.group(2)) filters.add(abiFiltersMatch.group(2))
-            if (!filters.isEmpty()) {
-                abiFilters = filters as Set<String>
-                logger.info("capacitor-nodejs: Found ABI filters from app build.gradle: ${abiFilters}")
+        // Check if splits.abi is enabled - look for "splits { abi { enable true" pattern
+        // Simple check: if we find "splits" followed by "abi" followed by "enable true"
+        if (buildGradleContent.contains('splits') &&
+            buildGradleContent.contains('abi') &&
+            buildGradleContent.contains('enable true')) {
+            // More specific check: ensure it's in the right context
+            def splitsPattern = /splits\s*\{[\s\S]*?abi\s*\{[\s\S]*?enable\s+true/
+            if (buildGradleContent =~ splitsPattern) {
+                splitsEnabled = true
+                logger.info("capacitor-nodejs: ✓ Detected splits.abi.enable = true in app build.gradle")
+
+                // Check for universalApk setting
+                def universalApkPattern = /universalApk\s+(true|false)/
+                def universalApkMatch = buildGradleContent =~ universalApkPattern
+                if (universalApkMatch.find()) {
+                    universalApkEnabled = universalApkMatch.group(1) == 'true'
+                    logger.info("capacitor-nodejs: Found universalApk = ${universalApkEnabled}")
+                }
+
+                // Extract ABI list from splits.abi.include - look for include within the abi block
+                // Match: splits { abi { include 'arm64-v8a', 'x86_64' } }
+                def abiBlockPattern = /splits\s*\{[\s\S]*?abi\s*\{([\s\S]*?)\}[\s\S]*?\}/
+                def abiBlockMatch = buildGradleContent =~ abiBlockPattern
+                if (abiBlockMatch.find()) {
+                    def abiBlock = abiBlockMatch.group(1)
+                    logger.info("capacitor-nodejs: Found abi block: ${abiBlock.take(200)}...")
+
+                    // Look for include statement within the abi block
+                    // Match: include 'arm64-v8a', 'x86_64' or include 'arm64-v8a'
+                    def includePattern = /include\s+['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]+)['"])?/
+                    def includeMatch = abiBlock =~ includePattern
+                    if (includeMatch.find()) {
+                        def filters = []
+                        if (includeMatch.group(1)) filters.add(includeMatch.group(1))
+                        if (includeMatch.group(2)) filters.add(includeMatch.group(2))
+                        if (!filters.isEmpty()) {
+                            splitAbis = filters as Set<String>
+                            logger.info("capacitor-nodejs: Found splits.abi.include with ABIs: ${splitAbis}")
+                        }
+                    } else {
+                        logger.warn("capacitor-nodejs: splits.abi enabled but could not find include statement")
+                    }
+                } else {
+                    logger.warn("capacitor-nodejs: splits.abi enabled but could not extract abi block")
+                }
+            } else {
+                logger.info("capacitor-nodejs: Found 'splits', 'abi', and 'enable true' but regex didn't match")
             }
+        } else {
+            logger.info("capacitor-nodejs: splits.abi not enabled (or not found in build.gradle)")
+        }
+
+        // Only look for ndk { abiFilters ... } if splits are not enabled
+        if (!splitsEnabled) {
+            // Look for ndk { abiFilters ... } pattern - match single or multiple filters
+            // Pattern: abiFilters 'arm64-v8a', 'x86_64' or abiFilters 'arm64-v8a'
+            def abiFiltersMatch = buildGradleContent =~ /abiFilters\s+['"]([^'"]+)['"]\s*(?:,\s*['"]([^'"]+)['"])?/
+            if (abiFiltersMatch.find()) {
+                def filters = []
+                if (abiFiltersMatch.group(1)) filters.add(abiFiltersMatch.group(1))
+                if (abiFiltersMatch.group(2)) filters.add(abiFiltersMatch.group(2))
+                if (!filters.isEmpty()) {
+                    abiFilters = filters as Set<String>
+                    logger.info("capacitor-nodejs: Found ABI filters from app build.gradle: ${abiFilters}")
+                }
+            }
+        } else if (splitAbis != null) {
+            // Use ABIs from splits.abi.include
+            abiFilters = splitAbis
+            logger.info("capacitor-nodejs: Using ABIs from splits.abi.include: ${abiFilters}")
+        }
+    }
+
+    // Also try to check the app project directly as a fallback (in case file parsing missed something)
+    // But only if we haven't detected splits yet
+    if (!splitsEnabled) {
+        try {
+            def appProject = rootProject.subprojects.find { it.path == ':app' }
+            if (appProject != null && appProject.hasProperty('android')) {
+                def appAndroid = appProject.android
+                if (appAndroid.splits.abi.enable) {
+                    splitsEnabled = true
+                    def splitAbisList = appAndroid.splits.abi.include
+                    if (splitAbisList != null && !splitAbisList.isEmpty()) {
+                        splitAbis = splitAbisList as Set<String>
+                        abiFilters = splitAbis
+                        logger.info("capacitor-nodejs: ✓ Detected splits.abi.enable = true via app project (ABIs: ${splitAbis})")
+                    }
+                    // Check if universalApk is enabled
+                    try {
+                        universalApkEnabled = appAndroid.splits.abi.universalApk
+                        logger.info("capacitor-nodejs: universalApk = ${universalApkEnabled} (via app project)")
+                    } catch (Exception e) {
+                        // universalApk might not be accessible
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // App project might not be evaluated yet, that's okay - file parsing should have caught it
+            logger.info("capacitor-nodejs: Could not check app project directly: ${e.message}")
         }
     }
 
@@ -110,8 +206,59 @@ import org.gradle.util.GradleVersion
         abiFilters = ["armeabi-v7a", "x86", "arm64-v8a", "x86_64"] as Set<String>
     }
 
-    // Set the ABI filters on plugin
-    android.defaultConfig.ndk.abiFilters = abiFilters
+    // Store ABIs for use throughout the plugin (works for both splits and non-splits)
+    // This variable will be used instead of android.defaultConfig.ndk.abiFilters
+    def pluginAbiFilters = abiFilters
+
+    // Set the ABI filters on plugin's ndk.abiFilters only if splits.abi is not enabled (they conflict)
+    // When splits are enabled, we'll use pluginAbiFilters directly instead of ndk.abiFilters
+    // Use projectsEvaluated to check splits after all projects are evaluated
+    gradle.projectsEvaluated {
+        // Re-check splits in case app project wasn't evaluated during configuration
+        try {
+            def appProject = rootProject.subprojects.find { it.path == ':app' }
+            if (appProject != null && appProject.hasProperty('android')) {
+                def appAndroid = appProject.android
+                if (appAndroid.splits.abi.enable && !splitsEnabled) {
+                    splitsEnabled = true
+                    def splitAbisList = appAndroid.splits.abi.include
+                    if (splitAbisList != null && !splitAbisList.isEmpty()) {
+                        splitAbis = splitAbisList as Set<String>
+                        abiFilters = splitAbis
+                        pluginAbiFilters = abiFilters
+                        logger.info("capacitor-nodejs: ✓ Detected splits.abi.enable = true via projectsEvaluated (ABIs: ${abiFilters})")
+                    }
+                    // Check universalApk setting
+                    try {
+                        universalApkEnabled = appAndroid.splits.abi.universalApk
+                        logger.info("capacitor-nodejs: universalApk = ${universalApkEnabled} (via projectsEvaluated)")
+                    } catch (Exception e) {
+                        logger.info("capacitor-nodejs: Could not read universalApk: ${e.message}")
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.info("capacitor-nodejs: Could not re-check splits in projectsEvaluated: ${e.message}")
+        }
+
+        // Clear ndk.abiFilters if splits are enabled (they conflict)
+        if (splitsEnabled && android.defaultConfig.ndk.abiFilters != null) {
+            logger.info("capacitor-nodejs: Clearing ndk.abiFilters because splits.abi is enabled")
+            android.defaultConfig.ndk.abiFilters = null
+        }
+    }
+
+    logger.info("capacitor-nodejs: Configuration phase - splitsEnabled=${splitsEnabled}, abiFilters=${abiFilters}")
+    // IMPORTANT: Do NOT set ndk.abiFilters if splits are enabled (even if detected via file parsing)
+    // The conflict is detected during configuration, so we must avoid setting it at all
+    if (!splitsEnabled) {
+        android.defaultConfig.ndk.abiFilters = abiFilters
+        logger.info("capacitor-nodejs: ✓ Set ndk.abiFilters to: ${abiFilters}")
+    } else {
+        logger.info("capacitor-nodejs: ✓ Splits.abi is enabled (detected via file parsing). Using ABIs: ${abiFilters}")
+        logger.info("capacitor-nodejs: ✓ NOT setting ndk.abiFilters (conflicts with splits). Will use pluginAbiFilters instead.")
+        // Explicitly ensure ndk.abiFilters is not set when splits are enabled
+    }
 
     // Configure androidResources to exclude certain files from the APK
     android.androidResources {
@@ -176,6 +323,8 @@ import org.gradle.util.GradleVersion
     }
 
     if (shouldRebuildNativeModules == "1") {
+        // Use pluginAbiFilters (works for both splits and non-splits configurations)
+        def abisToBuild = splitsEnabled ? pluginAbiFilters : (android.defaultConfig.ndk.abiFilters ?: pluginAbiFilters)
 
         // Determine npm command name - use helper script on macOS if npm might not be in PATH
         // (e.g., when Gradle is run from Android Studio). The helper script is created by
@@ -198,7 +347,7 @@ import org.gradle.util.GradleVersion
             }
         }
 
-        android.defaultConfig.ndk.abiFilters.each { abiName ->
+        abisToBuild.each { abiName ->
             def tempArch = switch (abiName) {
                 case 'armeabi-v7a' -> 'arm'
                 case 'arm64-v8a' -> 'arm64'
@@ -466,48 +615,100 @@ import org.gradle.util.GradleVersion
             }
 
             // Copy Android-built .node files to the app's assets to replace non-Android versions (macOS, Linux, Windows)
-            // Note: Only copy the primary ABI (arm64-v8a) since .node files in assets are not architecture-split
-            // The AAB will be split by Google Play per device architecture, so each device gets the correct version
+            // When splits are enabled, we need to handle:
+            // 1. Split APKs: copy to architecture-specific assets (assets-${abi}/)
+            // 2. Universal APK (if universalApk true): copy to main assets (assets/)
             // This works on both macOS and Linux build systems
+
+            // Capture values from outer scope for use in closures
+            def currentSplitsEnabled = splitsEnabled
+            def currentUniversalApkEnabled = universalApkEnabled
+
+            // Task 1: Copy to architecture-specific assets for split APKs (when splits are enabled)
+            if (currentSplitsEnabled) {
+                tasks.register("CopyAndroidNodeFilesToSplitAssets${abiName}", Copy) {
+                    dependsOn "CopyBuiltNpmAssets${abiName}"
+                    description = "Copy Android-built .node files for ${abiName} to architecture-specific assets for split APKs"
+
+                    // Depend on all CopyNodeProjectAssets tasks to ensure they all complete first
+                    def abisForDeps = pluginAbiFilters
+                    abisForDeps.each { otherAbi ->
+                        dependsOn "CopyNodeProjectAssets${otherAbi}"
+                    }
+
+                    def sourceDir = file("${rootBuildDir}/nodejs-native-assets/nodejs-native-assets-${abiName}/node_modules")
+                    def targetDirPath = "${rootProject.projectDir}/app/src/main/assets-${abiName}/public/${nodeDir}/node_modules"
+                    def targetDir = file(targetDirPath)
+                    def taskLogger = logger
+
+                    from sourceDir
+                    into targetDir
+                    include "**/*.node"
+                    includeEmptyDirs = false
+                    exclude "**/prebuilds/**"
+
+                    eachFile { fileCopyDetails ->
+                        def relativePathStr = fileCopyDetails.relativePath.toString()
+                        def targetFile = new File(targetDirPath, relativePathStr)
+                        if (targetFile.exists()) {
+                            taskLogger.info("Replacing ${relativePathStr} with Android-built version for ${abiName} (split APK)")
+                        }
+                    }
+
+                    onlyIf {
+                        sourceDir.exists()
+                    }
+                }
+            }
+
+            // Task 2: Copy to main assets for universal APK (when universalApk is true) or when no splits
             tasks.register("CopyAndroidNodeFilesToAppAssets${abiName}", Copy) {
                 dependsOn "CopyBuiltNpmAssets${abiName}"
-                description = "Copy Android-built .node files for ${abiName} to app assets to replace non-Android versions"
+                description = "Copy Android-built .node files for ${abiName} to main assets (for universal APK or no splits)"
 
                 // Depend on all CopyNodeProjectAssets tasks to ensure they all complete first
-                // This avoids conflicts when multiple ABIs read from the same source directory
-                android.defaultConfig.ndk.abiFilters.each { otherAbi ->
+                def abisForDeps = currentSplitsEnabled ? pluginAbiFilters : (android.defaultConfig.ndk.abiFilters ?: pluginAbiFilters)
+                abisForDeps.each { otherAbi ->
                     dependsOn "CopyNodeProjectAssets${otherAbi}"
                 }
 
                 def sourceDir = file("${rootBuildDir}/nodejs-native-assets/nodejs-native-assets-${abiName}/node_modules")
                 def targetDirPath = "${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}/node_modules"
                 def targetDir = file(targetDirPath)
-
-                // Capture logger during configuration phase for configuration cache compatibility
                 def taskLogger = logger
 
                 from sourceDir
                 into targetDir
                 include "**/*.node"
                 includeEmptyDirs = false
-                // Exclude prebuilt binaries for other platforms (macOS, Linux, Windows) - not needed for Android
                 exclude "**/prebuilds/**"
 
-                // Replace existing .node files (whether macOS, Linux, or Windows versions)
-                // Works on both macOS and Linux build systems
                 eachFile { fileCopyDetails ->
-                    // Preserve the relative path structure
                     def relativePathStr = fileCopyDetails.relativePath.toString()
                     def targetFile = new File(targetDirPath, relativePathStr)
                     if (targetFile.exists()) {
-                        taskLogger.info("Replacing ${relativePathStr} with Android-built version for ${abiName}")
+                        taskLogger.info("Replacing ${relativePathStr} with Android-built version for ${abiName} (universal APK)")
                     }
                 }
 
-                // Only copy for the primary ABI (arm64-v8a) since assets are not architecture-split
-                // For AABs, Google Play splits per device architecture, so each device gets the correct ABI
+                // Copy logic:
+                // - If splits enabled and universalApk is true: copy all ABIs to main assets (for universal APK)
+                // - If splits enabled and universalApk is false: don't copy (split APKs use architecture-specific assets)
+                // - If splits not enabled: copy only primary ABI to main assets
                 onlyIf {
-                    sourceDir.exists() && abiName == 'arm64-v8a'
+                    if (!sourceDir.exists()) {
+                        return false
+                    }
+                    if (currentSplitsEnabled && currentUniversalApkEnabled) {
+                        // Universal APK: copy all ABIs to main assets (all architectures included)
+                        return true
+                    } else if (currentSplitsEnabled && !currentUniversalApkEnabled) {
+                        // Split APKs only: don't copy to main assets (use architecture-specific assets)
+                        return false
+                    } else {
+                        // No splits: copy only primary ABI to main assets
+                        return abiName == 'arm64-v8a'
+                    }
                 }
 
                 // Clean up prebuilds directories after copying Android-built files
@@ -544,23 +745,35 @@ import org.gradle.util.GradleVersion
             // Set up task dependencies after all tasks are registered
             // Make tasks for different ABIs run sequentially to avoid conflicts when writing to the same directory
             gradle.projectsEvaluated {
-                def thisTask = project.tasks.findByName("CopyAndroidNodeFilesToAppAssets${abiName}")
-                if (thisTask != null) {
+                // Handle dependencies for main assets task (universal APK or no splits)
+                def mainAssetsTask = project.tasks.findByName("CopyAndroidNodeFilesToAppAssets${abiName}")
+                if (mainAssetsTask != null) {
                     // Determine order based on ABI name
                     def abiOrder = ['arm64-v8a': 1, 'x86_64': 2, 'armeabi-v7a': 3, 'x86': 4]
                     def thisOrder = abiOrder[abiName] ?: 99
 
                     // Make this task depend on all previous ABI tasks
-                    android.defaultConfig.ndk.abiFilters.each { otherAbi ->
+                    def abisForOrder = currentSplitsEnabled ? pluginAbiFilters : (android.defaultConfig.ndk.abiFilters ?: pluginAbiFilters)
+                    abisForOrder.each { otherAbi ->
                         if (otherAbi != abiName) {
                             def otherOrder = abiOrder[otherAbi] ?: 99
                             if (otherOrder < thisOrder) {
                                 def otherTask = project.tasks.findByName("CopyAndroidNodeFilesToAppAssets${otherAbi}")
                                 if (otherTask != null) {
-                                    thisTask.dependsOn otherTask
+                                    mainAssetsTask.dependsOn otherTask
                                 }
                             }
                         }
+                    }
+                }
+
+                // Handle dependencies for split assets task (when splits are enabled)
+                if (currentSplitsEnabled) {
+                    def splitAssetsTask = project.tasks.findByName("CopyAndroidNodeFilesToSplitAssets${abiName}")
+                    if (splitAssetsTask != null) {
+                        // Split assets tasks can run in parallel (they write to different directories)
+                        // But we still want them to depend on CopyNodeProjectAssets to avoid conflicts
+                        // This is already handled in the task definition above
                     }
                 }
             }
@@ -571,14 +784,38 @@ import org.gradle.util.GradleVersion
             gradle.projectsEvaluated {
                 def appProject = rootProject.findProject(':app')
                 if (appProject != null) {
-                    def copyTask = project.tasks.findByName("CopyAndroidNodeFilesToAppAssets${abiName}")
-                    if (copyTask != null) {
-                        // Hook into all mergeAssets tasks (debug, release, etc.)
+                    // Hook up main assets task (for universal APK or no splits)
+                    def mainAssetsTask = project.tasks.findByName("CopyAndroidNodeFilesToAppAssets${abiName}")
+                    if (mainAssetsTask != null) {
                         appProject.android.applicationVariants.all { variant ->
                             def mergeAssetsTask = appProject.tasks.findByName("merge${variant.name.capitalize()}Assets")
                             if (mergeAssetsTask != null) {
-                                mergeAssetsTask.dependsOn copyTask
+                                mergeAssetsTask.dependsOn mainAssetsTask
                                 logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets will depend on CopyAndroidNodeFilesToAppAssets${abiName}")
+                            }
+                        }
+                    }
+
+                    // Hook up split assets task (for split APKs when splits are enabled)
+                    if (currentSplitsEnabled) {
+                        def splitAssetsTask = project.tasks.findByName("CopyAndroidNodeFilesToSplitAssets${abiName}")
+                        if (splitAssetsTask != null) {
+                            appProject.android.applicationVariants.all { variant ->
+                                // For split APKs, we need to hook into architecture-specific merge tasks
+                                // Android creates tasks like mergeDebugAssetsArm64-v8a, mergeDebugAssetsX86_64, etc.
+                                def abiSanitized = abiName.replaceAll('-', '').replaceAll('_', '')
+                                def mergeSplitAssetsTask = appProject.tasks.findByName("merge${variant.name.capitalize()}Assets${abiSanitized.capitalize()}")
+                                if (mergeSplitAssetsTask != null) {
+                                    mergeSplitAssetsTask.dependsOn splitAssetsTask
+                                    logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets${abiSanitized.capitalize()} will depend on CopyAndroidNodeFilesToSplitAssets${abiName}")
+                                } else {
+                                    // Fallback: also hook into main mergeAssets task
+                                    def mergeAssetsTask = appProject.tasks.findByName("merge${variant.name.capitalize()}Assets")
+                                    if (mergeAssetsTask != null) {
+                                        mergeAssetsTask.dependsOn splitAssetsTask
+                                        logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets will also depend on CopyAndroidNodeFilesToSplitAssets${abiName}")
+                                    }
+                                }
                             }
                         }
                     }
