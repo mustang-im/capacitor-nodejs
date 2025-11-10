@@ -342,13 +342,12 @@ import org.gradle.util.GradleVersion
                 environment 'npm_config_platform', 'android'
                 environment 'npm_config_format', 'make-android'
 
-                // Adds the original project .bin to the path. It's a workaround
-                // to correctly build some modules that depend on symlinked modules,
-                // like node-pre-gyp.
-                // For Capacitor, the source nodejs project is in the webDir (typically dist/nodejs)
-                def originalProjectBin = file("${rootProjectDir}/../../${webDir}/${nodeDir}/node_modules/.bin")
-                if (originalProjectBin.exists()) {
-                    environment 'PATH', "${originalProjectBin}" + System.getProperty("path.separator") + "${System.env.PATH}"
+                // Adds the CLI directory's .bin to the path. All build tools should be in node_modules/.bin
+                def cliBin = file("${rootProjectDir}/../node_modules/.bin")
+                if (cliBin.exists()) {
+                    def pathSeparator = System.getProperty("path.separator")
+                    environment 'PATH', "${cliBin.absolutePath}${pathSeparator}${System.env.PATH}"
+                    logger.info("capacitor-nodejs: Added to PATH: ${cliBin.absolutePath}")
                 }
 
                 environment 'TOOLCHAIN', standaloneToolchain
