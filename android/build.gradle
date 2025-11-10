@@ -293,30 +293,13 @@ import org.gradle.util.GradleVersion
 
                 workingDir "${buildDir}/${nodeDir}/"
 
-                // Look for nodejs-mobile-gyp in yarn/node_modules locations only
-                // 1. Plugin's node_modules (when installed normally)
-                def pluginGypPath = "${rootProjectDir}/../node_modules/capacitor-nodejs/node_modules/nodejs-mobile-gyp/bin/node-gyp.js"
-                // 2. Root node_modules (when hoisted by yarn)
-                def rootGypPath = "${rootProjectDir}/../../node_modules/nodejs-mobile-gyp/bin/node-gyp.js"
-                // 3. Linked package's node_modules (when using yarn link)
-                def linkedGypPath = "${project.projectDir}/../node_modules/nodejs-mobile-gyp/bin/node-gyp.js"
-                // 4. Source nodejs directory (dist/nodejs) - standard yarn structure
-                // rootProjectDir is mobile/android, so ../dist goes to mobile/dist
-                def distGypPath = "${rootProjectDir}/../dist/nodejs/node_modules/nodejs-mobile-gyp/bin/node-gyp.js"
+                // Look for nodejs-mobile-gyp in the directory where Capacitor CLI is called from
+                // rootProjectDir is mobile/android, so ../ goes to mobile/ (where Capacitor CLI is called from)
+                def npmGypPath = "${rootProjectDir}/../node_modules/nodejs-mobile-gyp/bin/node-gyp.js"
+                def npmGypPathFile = file(npmGypPath)
 
-                def npmGypPath = null
-                for (path in [pluginGypPath, rootGypPath, linkedGypPath, distGypPath]) {
-                    def pathFile = file(path)
-                    logger.info("Checking for nodejs-mobile-gyp at: ${pathFile.absolutePath} (exists: ${pathFile.exists()})")
-                    if (pathFile.exists()) {
-                        npmGypPath = path
-                        logger.info("Found nodejs-mobile-gyp at: ${pathFile.absolutePath}")
-                        break
-                    }
-                }
-
-                if (npmGypPath == null) {
-                    throw new GradleException("Could not find nodejs-mobile-gyp. This plugin only supports yarn (not pnpm). Checked: ${pluginGypPath}, ${rootGypPath}, ${linkedGypPath}, ${distGypPath}")
+                if (!npmGypPathFile.exists()) {
+                    throw new GradleException("Could not find nodejs-mobile-gyp. Expected at: ${npmGypPathFile.absolutePath}")
                 }
 
                 // Ensure nodejs-mobile-gyp is used instead of regular node-gyp
