@@ -120,7 +120,9 @@ public class CapacitorNodeJS {
             final String cachePath = context.getCacheDir().getAbsolutePath();
 
             final String basePath = FileOperations.CombinePath(filesPath, "nodejs");
-            final String projectPath = FileOperations.CombinePath(basePath, "public");
+            // Copy to public/nodejs to preserve the full path structure (nodejs/node_modules/...)
+            // This ensures better-sqlite3 and other native modules can find their .node files
+            final String projectPath = FileOperations.CombinePath(basePath, "public", projectDir);
             final String modulesPath = FileOperations.CombinePath(basePath, "builtin_modules");
             final String dataPath = FileOperations.CombinePath(basePath, "data");
 
@@ -256,33 +258,14 @@ public class CapacitorNodeJS {
         final String modulesAssetDir = FileOperations.CombinePath("builtin_modules");
         final AssetManager assetManager = context.getAssets();
 
-        // For split APKs, try to use architecture-specific assets first
-        // This ensures the correct architecture's .node files are loaded
-        String nodeAssetDir = null;
-        String[] supportedAbis = Build.SUPPORTED_ABIS;
-
-        // Try architecture-specific assets first (for split APKs)
-        // Android merges assets-${abi}/public/ into public/ namespace, so we check for architecture-specific assets
-        for (String abi : supportedAbis) {
-            // Check if architecture-specific assets exist (assets-arm64-v8a/public/nodejs/)
-            String archSpecificDir = FileOperations.CombinePath("public-" + abi, projectDir);
-            try {
-                String[] files = assetManager.list(archSpecificDir);
-                if (files != null && files.length > 0) {
-                    nodeAssetDir = archSpecificDir;
-                    Logger.debug(CapacitorNodeJSPlugin.LOGGER_TAG, "Using architecture-specific assets: " + archSpecificDir + " (ABI: " + abi + ")");
-                    break;
-                }
-            } catch (IOException e) {
-                // Continue to next ABI or fall back to main assets
-            }
-        }
-
-        // Fall back to main assets (for universal APKs or when architecture-specific assets not found)
-        if (nodeAssetDir == null) {
-            nodeAssetDir = FileOperations.CombinePath("public", projectDir);
-            Logger.debug(CapacitorNodeJSPlugin.LOGGER_TAG, "Using main assets: " + nodeAssetDir + " (Device ABIs: " + java.util.Arrays.toString(supportedAbis) + ")");
-        }
+        // Asset path selection:
+        // - For split APKs: .node files are in assets/public/nodejs/node_modules/... (main assets)
+        //   Each split APK only contains one architecture, so public/nodejs directly accesses the correct files
+        // - For universal APKs: .node files are in assets-${abi}/public/nodejs/node_modules/... (architecture-specific)
+        //   Android automatically merges architecture-specific assets into the public/ namespace at runtime
+        //   based on the device's ABI, so public/nodejs will access the correct architecture's files
+        final String nodeAssetDir = FileOperations.CombinePath("public", projectDir);
+        Logger.debug(CapacitorNodeJSPlugin.LOGGER_TAG, "Using assets: " + nodeAssetDir + " (Device ABIs: " + java.util.Arrays.toString(Build.SUPPORTED_ABIS) + ")");
 
         boolean success = true;
         if (FileOperations.ExistsPath(projectPath) && isAppUpdated()) {
