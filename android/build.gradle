@@ -87,6 +87,10 @@ import org.gradle.util.GradleVersion
     def splitAbis = null
     def universalApkEnabled = false
 
+    // IMPORTANT: Clear ndk.abiFilters IMMEDIATELY to prevent any conflicts
+    // Do this before any file parsing or other operations
+    android.defaultConfig.ndk.abiFilters = null
+
     // ALWAYS parse the file first to detect splits (most reliable method)
     // This must happen before we try to set ndk.abiFilters to avoid conflicts
     if (appBuildGradle.exists()) {
@@ -194,15 +198,68 @@ import org.gradle.util.GradleVersion
         }
     }
 
+    // IMPORTANT: Clear ndk.abiFilters FIRST if splits are detected, before any other operations
+    // This prevents Android from detecting a conflict during configuration phase
+    if (splitsEnabled) {
+        logger.info("capacitor-nodejs: Splits detected during configuration - explicitly clearing ndk.abiFilters to prevent conflicts")
+        android.defaultConfig.ndk.abiFilters = null
+    }
+
     // If no ABI filters found, check the plugin's android config (for backwards compatibility)
-    if (abiFilters == null && android.defaultConfig.ndk.abiFilters != null && !android.defaultConfig.ndk.abiFilters.isEmpty()) {
+    // But only if splits are not enabled (to avoid conflicts)
+    if (!splitsEnabled && abiFilters == null && android.defaultConfig.ndk.abiFilters != null && !android.defaultConfig.ndk.abiFilters.isEmpty()) {
         abiFilters = android.defaultConfig.ndk.abiFilters
     }
 
-    // If still no ABI filters, set defaults
-    if (abiFilters == null || abiFilters.isEmpty()) {
+    // IMPORTANT: Explicitly clear ndk.abiFilters during configuration if splits are detected
+    // This must happen BEFORE setting default ABI filters to prevent conflicts
+    if (splitsEnabled) {
+        // Already cleared above, but ensure it stays cleared
+        android.defaultConfig.ndk.abiFilters = null
+
+        // Use afterEvaluate to clear app's ndk.abiFilters as early as possible
+        // This runs before Android's conflict check
+        try {
+            def appProject = rootProject.subprojects.find { it.path == ':app' }
+            if (appProject != null) {
+                appProject.afterEvaluate { proj ->
+                    if (proj.hasProperty('android')) {
+                        def appAndroid = proj.android
+                        if (appAndroid.defaultConfig.ndk.abiFilters != null) {
+                            logger.info("capacitor-nodejs: Clearing app's ndk.abiFilters in afterEvaluate (splits detected)")
+                            appAndroid.defaultConfig.ndk.abiFilters = null
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.debug("capacitor-nodejs: Could not set up afterEvaluate for app project: ${e.message}")
+        }
+
+        // Also try to clear immediately if accessible
+        try {
+            def appProject = rootProject.subprojects.find { it.path == ':app' }
+            if (appProject != null && appProject.hasProperty('android')) {
+                def appAndroid = appProject.android
+                if (appAndroid.defaultConfig.ndk.abiFilters != null) {
+                    logger.info("capacitor-nodejs: Clearing app's ndk.abiFilters during configuration (splits detected)")
+                    appAndroid.defaultConfig.ndk.abiFilters = null
+                }
+            }
+        } catch (Exception e) {
+            // App project might not be accessible during configuration, that's OK
+            logger.debug("capacitor-nodejs: Could not clear app's ndk.abiFilters during configuration: ${e.message}")
+        }
+    }
+
+    // If still no ABI filters, set defaults (but only if splits are not enabled)
+    if ((abiFilters == null || abiFilters.isEmpty()) && !splitsEnabled) {
         // No abiFilter is defined for the build. Set it to the supported architectures.
         logger.warn("capacitor-nodejs detected no ABI filters were set. Will use [\"armeabi-v7a\", \"x86\", \"arm64-v8a\", \"x86_64\"].")
+        abiFilters = ["armeabi-v7a", "x86", "arm64-v8a", "x86_64"] as Set<String>
+    } else if (splitsEnabled && (abiFilters == null || abiFilters.isEmpty())) {
+        // If splits are enabled but no ABIs detected, use defaults but don't set ndk.abiFilters
+        logger.warn("capacitor-nodejs: Splits enabled but no ABIs detected, using defaults: [\"armeabi-v7a\", \"x86\", \"arm64-v8a\", \"x86_64\"]")
         abiFilters = ["armeabi-v7a", "x86", "arm64-v8a", "x86_64"] as Set<String>
     }
 
@@ -241,24 +298,39 @@ import org.gradle.util.GradleVersion
             logger.info("capacitor-nodejs: Could not re-check splits in projectsEvaluated: ${e.message}")
         }
 
-        // Clear ndk.abiFilters if splits are enabled (they conflict)
-        if (splitsEnabled && android.defaultConfig.ndk.abiFilters != null) {
-            logger.info("capacitor-nodejs: Clearing ndk.abiFilters because splits.abi is enabled")
-            android.defaultConfig.ndk.abiFilters = null
+        // Set or clear ndk.abiFilters based on splits detection
+        if (splitsEnabled) {
+            // Clear ndk.abiFilters if splits are enabled (they conflict)
+            // Clear both plugin's and app's ndk.abiFilters
+            if (android.defaultConfig.ndk.abiFilters != null) {
+                logger.info("capacitor-nodejs: Clearing plugin's ndk.abiFilters because splits.abi is enabled")
+                android.defaultConfig.ndk.abiFilters = null
+            }
+            // Also clear app's ndk.abiFilters if it exists
+            try {
+                def appProject = rootProject.subprojects.find { it.path == ':app' }
+                if (appProject != null && appProject.hasProperty('android')) {
+                    def appAndroid = appProject.android
+                    if (appAndroid.defaultConfig.ndk.abiFilters != null) {
+                        logger.info("capacitor-nodejs: Clearing app's ndk.abiFilters because splits.abi is enabled")
+                        appAndroid.defaultConfig.ndk.abiFilters = null
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("capacitor-nodejs: Could not clear app's ndk.abiFilters: ${e.message}")
+            }
+            logger.info("capacitor-nodejs: Splits.abi is enabled. Using ABIs: ${pluginAbiFilters}")
+        } else {
+            // Set ndk.abiFilters only if splits are not enabled
+            android.defaultConfig.ndk.abiFilters = abiFilters
+            logger.info("capacitor-nodejs: Set ndk.abiFilters to: ${abiFilters}")
         }
     }
 
     logger.info("capacitor-nodejs: Configuration phase - splitsEnabled=${splitsEnabled}, abiFilters=${abiFilters}")
-    // IMPORTANT: Do NOT set ndk.abiFilters if splits are enabled (even if detected via file parsing)
-    // The conflict is detected during configuration, so we must avoid setting it at all
-    if (!splitsEnabled) {
-        android.defaultConfig.ndk.abiFilters = abiFilters
-        logger.info("capacitor-nodejs: ✓ Set ndk.abiFilters to: ${abiFilters}")
-    } else {
-        logger.info("capacitor-nodejs: ✓ Splits.abi is enabled (detected via file parsing). Using ABIs: ${abiFilters}")
-        logger.info("capacitor-nodejs: ✓ NOT setting ndk.abiFilters (conflicts with splits). Will use pluginAbiFilters instead.")
-        // Explicitly ensure ndk.abiFilters is not set when splits are enabled
-    }
+    // IMPORTANT: Do NOT set ndk.abiFilters during configuration phase
+    // Wait until projectsEvaluated to ensure splits are properly detected and avoid conflicts
+    logger.info("capacitor-nodejs: Will set/clear ndk.abiFilters in projectsEvaluated after splits detection")
 
     // Configure androidResources to exclude certain files from the APK
     // Exclude build-time helper scripts and config files that shouldn't be in the final APK
@@ -266,14 +338,14 @@ import org.gradle.util.GradleVersion
     // Note: Patterns are matched against the full path within assets/, so we need to match both root and public/ paths
     def ignorePattern = '*.gz:build-native-modules-MacOS-helper-script.sh:public/build-native-modules-MacOS-helper-script.sh:**/build-native-modules-MacOS-helper-script.sh:NODEJS_MOBILE_BUILD_NATIVE_MODULES_VALUE.txt:public/NODEJS_MOBILE_BUILD_NATIVE_MODULES_VALUE.txt'
 
-    // When splits are enabled and universalApk is false, exclude .node files from main assets
-    // (they should only be in architecture-specific assets directories)
-    // Note: The pattern needs to match the actual path structure in the APK
-    if (splitsEnabled && !universalApkEnabled) {
-        // Exclude .node files from public/nodejs/node_modules/ in main assets
+    // When splits are enabled and universalApk is false, we DON'T exclude .node files from main assets
+    // because split APKs need .node files in main assets (each split APK only contains one architecture)
+    // Only exclude when universalApk is true (then .node files go to architecture-specific assets)
+    if (splitsEnabled && universalApkEnabled) {
+        // Exclude .node files from public/nodejs/node_modules/ in main assets for universal APK
         // This pattern matches: assets/public/nodejs/node_modules/**/*.node
         ignorePattern += ':public/nodejs/node_modules/**/*.node'
-        logger.info("capacitor-nodejs: Excluding .node files from assets/public/ (split APKs only) using pattern: ${ignorePattern}")
+        logger.info("capacitor-nodejs: Excluding .node files from assets/public/ (universal APK only) using pattern: ${ignorePattern}")
     }
 
     android.androidResources {
@@ -288,6 +360,7 @@ import org.gradle.util.GradleVersion
     String projectWWW // www/assets folder from the Application project (Capacitor uses 'public')
     String nodeDir = "nodejs" // Default nodeDir from CapacitorNodeJS plugin config
     String webDir = "www" // Default webDir
+    boolean bundleMode = false // Default bundle mode
 
     // Try to read capacitor.config.json
     def capacitorConfigFile = file("${rootProjectDir}/capacitor.config.json")
@@ -298,6 +371,9 @@ import org.gradle.util.GradleVersion
         def pluginConfig = capacitorConfig.plugins?.CapacitorNodeJS
         if (pluginConfig?.nodeDir) {
             nodeDir = pluginConfig.nodeDir
+        }
+        if (pluginConfig?.bundle != null) {
+            bundleMode = pluginConfig.bundle == true
         }
     }
 
@@ -340,6 +416,109 @@ import org.gradle.util.GradleVersion
     if (shouldRebuildNativeModules == "1") {
         // Use pluginAbiFilters (works for both splits and non-splits configurations)
         def abisToBuild = splitsEnabled ? pluginAbiFilters : (android.defaultConfig.ndk.abiFilters ?: pluginAbiFilters)
+
+        // Capture bundleMode in a final variable for use in closures
+        final boolean finalBundleMode = bundleMode
+
+        // Task to clean main assets node_modules when universalApk is enabled (bundle mode)
+        // Register once outside the ABI loop
+        // NOTE: This task should NOT delete files from the source location that CopyNodeProjectAssets needs.
+        // Instead, it should only clean up after all copy tasks have completed.
+        // For universal APK, the architecture-specific assets are used, so we can clean the main assets.
+        if (finalBundleMode && splitsEnabled && universalApkEnabled) {
+            if (project.tasks.findByName("BundleNodeModulesFromMainAssets") == null) {
+                tasks.register("BundleNodeModulesFromMainAssets") {
+                    description = "Delete node_modules from main assets (bundle mode, universal APK)"
+
+                    // Depend on all CopyNodeProjectAssets tasks to ensure they complete first
+                    def abisForDeps = pluginAbiFilters
+                    abisForDeps.each { abi ->
+                        def copyTask = project.tasks.findByName("CopyNodeProjectAssets${abi}")
+                        if (copyTask != null) {
+                            dependsOn copyTask
+                        }
+                    }
+
+                    def nodeModulesPath = "${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}/node_modules"
+                    def nodeModulesDir = file(nodeModulesPath)
+                    def taskLogger = logger
+
+                    doLast {
+                        if (!nodeModulesDir.exists()) {
+                            taskLogger.info("BundleNodeModulesFromMainAssets: Directory ${nodeModulesPath} does not exist, skipping")
+                            return
+                        }
+
+                        try {
+                            // Delete non-essential files but preserve files needed for CopyNodeProjectAssets
+                            // CopyNodeProjectAssets needs the source files to copy to temp build location
+                            // So we preserve package.json files and build artifacts that might be needed
+                            int deletedCount = 0
+                            java.nio.file.Files.walkFileTree(nodeModulesDir.toPath(), new java.nio.file.FileVisitor<java.nio.file.Path>() {
+                                java.nio.file.FileVisitResult preVisitDirectory(java.nio.file.Path dir, java.nio.file.attribute.BasicFileAttributes attrs) {
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+
+                                java.nio.file.FileVisitResult visitFile(java.nio.file.Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                                    def fileName = file.fileName.toString()
+                                    // Keep .node files (already moved to architecture-specific assets),
+                                    // package.json files (needed for path resolution and CopyNodeProjectAssets),
+                                    // and dir.list/file.list
+                                    if (!fileName.endsWith('.node') &&
+                                        !fileName.equals('package.json') &&
+                                        !fileName.equals('dir.list') &&
+                                        !fileName.equals('file.list') &&
+                                        !fileName.endsWith('.gyp') &&
+                                        !fileName.endsWith('.gypi') &&
+                                        !fileName.endsWith('.mk') &&
+                                        !fileName.endsWith('.Makefile') &&
+                                        !file.toString().contains('/build/') &&
+                                        !file.toString().contains('/deps/')) {
+                                        try {
+                                            java.nio.file.Files.delete(file)
+                                            deletedCount++
+                                        } catch (Exception e) {
+                                            taskLogger.warn("BundleNodeModulesFromMainAssets: Failed to delete ${file}: ${e.message}")
+                                        }
+                                    }
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+
+                                java.nio.file.FileVisitResult visitFileFailed(java.nio.file.Path file, java.io.IOException exc) {
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+
+                                java.nio.file.FileVisitResult postVisitDirectory(java.nio.file.Path dir, java.io.IOException exc) {
+                                    // Delete empty directories (except node_modules itself and directories containing package.json or build artifacts)
+                                    try {
+                                        if (dir != nodeModulesDir.toPath()) {
+                                            def dirFile = dir.toFile()
+                                            def files = dirFile.listFiles()
+                                            if (files == null || files.length == 0) {
+                                                // Only delete if it's not a build directory or deps directory
+                                                if (!dir.toString().contains('/build/') && !dir.toString().contains('/deps/')) {
+                                                    java.nio.file.Files.delete(dir)
+                                                }
+                                            }
+                                        }
+                                    } catch (Exception e) {
+                                        // Directory not empty or other error, skip
+                                    }
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+                            })
+                            taskLogger.info("BundleNodeModulesFromMainAssets: Deleted ${deletedCount} non-essential files from main assets node_modules (preserved package.json and build artifacts for CopyNodeProjectAssets)")
+                        } catch (Exception e) {
+                            taskLogger.warn("BundleNodeModulesFromMainAssets: Failed to clean node_modules directory: ${e.message}")
+                        }
+                    }
+
+                    onlyIf {
+                        finalBundleMode && nodeModulesDir.exists()
+                    }
+                }
+            }
+        }
 
         // Determine npm command name - use helper script on macOS if npm might not be in PATH
         // (e.g., when Gradle is run from Android Studio). The helper script is created by
@@ -736,7 +915,9 @@ import org.gradle.util.GradleVersion
 
             // Task 1: Copy to main assets for split APKs (when splits enabled but universalApk is false)
             // Each split APK only contains one architecture, so we can put .node files directly in main assets
+            logger.info("capacitor-nodejs: Checking split task registration for ${abiName}: splitsEnabled=${currentSplitsEnabled}, universalApkEnabled=${currentUniversalApkEnabled}")
             if (currentSplitsEnabled && !currentUniversalApkEnabled) {
+                logger.info("capacitor-nodejs: Registering CopyAndroidNodeFilesToSplitAssets${abiName}")
                 tasks.register("CopyAndroidNodeFilesToSplitAssets${abiName}", Copy) {
                     dependsOn "CopyBuiltNpmAssets${abiName}"
                     description = "Copy Android-built .node files for ${abiName} to main assets for split APKs"
@@ -747,13 +928,23 @@ import org.gradle.util.GradleVersion
                         dependsOn "CopyNodeProjectAssets${otherAbi}"
                     }
 
+                    // Also depend on bundle task if enabled, since it moves .node files to build/Release
+                    if (finalBundleMode) {
+                        def bundleTask = project.tasks.findByName("BundleNodeModulesForUniversal${abiName}")
+                        if (bundleTask != null) {
+                            dependsOn bundleTask
+                        }
+                    }
+
                     // Also depend on remove task to ensure wrong-architecture files are deleted from main assets first
                     def removeMainTask = project.tasks.findByName("RemoveNodeFilesFromMainAssets")
                     if (removeMainTask != null) {
                         dependsOn removeMainTask
                     }
 
-                    def sourceDir = file("${rootBuildDir}/nodejs-native-assets/nodejs-native-assets-${abiName}/node_modules")
+                    // Source: architecture-specific assets (could be in node_modules or build/Release after bundling)
+                    def sourceDirPath = "${rootProject.projectDir}/app/src/main/assets-${abiName}/public/${nodeDir}"
+                    def sourceDir = file(sourceDirPath)
                     def targetDirPath = "${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}/node_modules"
                     def targetDir = file(targetDirPath)
                     def taskLogger = logger
@@ -769,6 +960,8 @@ import org.gradle.util.GradleVersion
                         def targetFile = new File(targetDirPath, relativePathStr)
                         if (targetFile.exists()) {
                             taskLogger.info("Replacing ${relativePathStr} with Android-built version for ${abiName} (split APK)")
+                        } else {
+                            taskLogger.info("Copying ${relativePathStr} from ${abiName} assets to main assets for split APK")
                         }
                     }
 
@@ -808,6 +1001,43 @@ import org.gradle.util.GradleVersion
                         if (targetFile.exists()) {
                             taskLogger.info("Replacing ${relativePathStr} with Android-built version for ${abiName} (universal APK)")
                         }
+                    }
+
+                    onlyIf {
+                        sourceDir.exists()
+                    }
+                }
+
+                // Also copy to main assets for split APKs (when universalApk is enabled)
+                // Split APKs need .node files in main assets, not just architecture-specific assets
+                // Sanitize ABI name for task name (remove hyphens and underscores)
+                def abiSanitizedForTask = abiName.replaceAll('-', '').replaceAll('_', '')
+                tasks.register("CopyAndroidNodeFilesToMainAssetsForSplit${abiSanitizedForTask}", Copy) {
+                    dependsOn "CopyAndroidNodeFilesToUniversalAssets${abiName}"
+                    // Also depend on bundle task if enabled, since it moves .node files to build/Release
+                    if (finalBundleMode) {
+                        def bundleTask = project.tasks.findByName("BundleNodeModulesForUniversal${abiName}")
+                        if (bundleTask != null) {
+                            dependsOn bundleTask
+                        }
+                    }
+                    description = "Copy Android-built .node files for ${abiName} from architecture-specific assets to main assets for split APKs (universal APK)"
+
+                    // Source: architecture-specific assets (could be in node_modules or build/Release after bundling)
+                    def sourceDirPath = "${rootProject.projectDir}/app/src/main/assets-${abiName}/public/${nodeDir}"
+                    def sourceDir = file(sourceDirPath)
+                    def targetDirPath = "${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}/node_modules"
+                    def targetDir = file(targetDirPath)
+                    def taskLogger = logger
+
+                    from sourceDir
+                    into targetDir
+                    include "**/*.node"
+                    includeEmptyDirs = false
+
+                    eachFile { fileCopyDetails ->
+                        def relativePathStr = fileCopyDetails.relativePath.toString()
+                        taskLogger.info("Copying ${relativePathStr} from ${abiName} assets to main assets for split APK")
                     }
 
                     onlyIf {
@@ -885,6 +1115,324 @@ import org.gradle.util.GradleVersion
                                 taskLogger.info("Removed prebuilds directory: ${dir.absolutePath}")
                             }
                         }
+                    }
+                }
+            }
+
+            // Bundle mode: Flatten node_modules structure by moving .node files up to nodejs/ and removing node_modules
+            // This runs after native modules are copied and only when bundle mode is enabled
+            // Example: nodejs/node_modules/bettersqlite3/build/Release/better_sqlite3.node -> nodejs/build/Release/better_sqlite3.node
+            if (finalBundleMode) {
+                // Task for split APKs (main assets)
+                if (currentSplitsEnabled && !currentUniversalApkEnabled) {
+                    tasks.register("BundleNodeModulesForSplit${abiName}") {
+                        dependsOn "CopyAndroidNodeFilesToSplitAssets${abiName}"
+                        description = "Flatten node_modules structure for ${abiName} (bundle mode, split APKs)"
+
+                        def nodeModulesPath = "${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}/node_modules"
+                        def nodeModulesDir = file(nodeModulesPath)
+                        def nodejsBasePath = "${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}"
+                        def nodejsBaseDir = file(nodejsBasePath)
+                        def taskLogger = logger
+
+                        doLast {
+                            if (!nodeModulesDir.exists()) {
+                                taskLogger.info("BundleNodeModulesForSplit${abiName}: Directory ${nodeModulesPath} does not exist, skipping")
+                                return
+                            }
+
+                            int movedCount = 0
+                            def nodeFiles = []
+
+                            // First pass: collect all .node files and their target paths
+                            java.nio.file.Files.walkFileTree(nodeModulesDir.toPath(), new java.nio.file.FileVisitor<java.nio.file.Path>() {
+                                java.nio.file.FileVisitResult preVisitDirectory(java.nio.file.Path dir, java.nio.file.attribute.BasicFileAttributes attrs) {
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+
+                                java.nio.file.FileVisitResult visitFile(java.nio.file.Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                                    def fileName = file.fileName.toString()
+                                    if (fileName.endsWith('.node')) {
+                                        // Get path relative to node_modules
+                                        def relativePath = nodeModulesDir.toPath().relativize(file)
+
+                                        // Skip the package name (first part) and use the rest
+                                        def nameCount = relativePath.nameCount
+                                        if (nameCount > 1) {
+                                            // Get subpath starting from index 1 (skip package name)
+                                            def subPath = relativePath.subpath(1, nameCount)
+                                            def flattenedPath = java.nio.file.Paths.get(nodejsBasePath).resolve(subPath)
+                                            nodeFiles.add([source: file, target: flattenedPath])
+                                        }
+                                    }
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+
+                                java.nio.file.FileVisitResult visitFileFailed(java.nio.file.Path file, java.io.IOException exc) {
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+
+                                java.nio.file.FileVisitResult postVisitDirectory(java.nio.file.Path dir, java.io.IOException exc) {
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+                            })
+
+                            // Second pass: move files to flattened locations
+                            nodeFiles.each { fileInfo ->
+                                try {
+                                    def targetPath = fileInfo.target
+                                    def targetParent = targetPath.parent
+                                    if (targetParent != null && !java.nio.file.Files.exists(targetParent)) {
+                                        java.nio.file.Files.createDirectories(targetParent)
+                                    }
+                                    java.nio.file.Files.copy(fileInfo.source, targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                                    movedCount++
+                                } catch (Exception e) {
+                                    taskLogger.warn("BundleNodeModulesForSplit${abiName}: Failed to move ${fileInfo.source} to ${fileInfo.target}: ${e.message}")
+                                }
+                            }
+
+                            // Third pass: delete non-essential files from node_modules, but preserve package.json files
+                            // Native modules need their package.json to resolve binary paths at runtime
+                            if (nodeModulesDir.exists()) {
+                                try {
+                                    int deletedCount = 0
+                                    java.nio.file.Files.walkFileTree(nodeModulesDir.toPath(), new java.nio.file.FileVisitor<java.nio.file.Path>() {
+                                        java.nio.file.FileVisitResult preVisitDirectory(java.nio.file.Path dir, java.nio.file.attribute.BasicFileAttributes attrs) {
+                                            return java.nio.file.FileVisitResult.CONTINUE
+                                        }
+
+                                        java.nio.file.FileVisitResult visitFile(java.nio.file.Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                                            def fileName = file.fileName.toString()
+                                            // Keep .node files (already moved), package.json files (needed for path resolution), and dir.list/file.list
+                                            if (!fileName.endsWith('.node') &&
+                                                !fileName.equals('package.json') &&
+                                                !fileName.equals('dir.list') &&
+                                                !fileName.equals('file.list')) {
+                                                try {
+                                                    java.nio.file.Files.delete(file)
+                                                    deletedCount++
+                                                } catch (Exception e) {
+                                                    taskLogger.warn("BundleNodeModulesForSplit${abiName}: Failed to delete ${file}: ${e.message}")
+                                                }
+                                            }
+                                            return java.nio.file.FileVisitResult.CONTINUE
+                                        }
+
+                                        java.nio.file.FileVisitResult visitFileFailed(java.nio.file.Path file, java.io.IOException exc) {
+                                            return java.nio.file.FileVisitResult.CONTINUE
+                                        }
+
+                                        java.nio.file.FileVisitResult postVisitDirectory(java.nio.file.Path dir, java.io.IOException exc) {
+                                            // Delete empty directories (except node_modules itself and directories containing package.json)
+                                            try {
+                                                if (dir != nodeModulesDir.toPath()) {
+                                                    def dirFile = dir.toFile()
+                                                    def files = dirFile.listFiles()
+                                                    if (files == null || files.length == 0) {
+                                                        java.nio.file.Files.delete(dir)
+                                                    }
+                                                }
+                                            } catch (Exception e) {
+                                                // Directory not empty or other error, skip
+                                            }
+                                            return java.nio.file.FileVisitResult.CONTINUE
+                                        }
+                                    })
+                                    taskLogger.info("BundleNodeModulesForSplit${abiName}: Deleted ${deletedCount} non-essential files from node_modules (preserved package.json files)")
+                                } catch (Exception e) {
+                                    taskLogger.warn("BundleNodeModulesForSplit${abiName}: Failed to clean node_modules directory: ${e.message}")
+                                }
+                            }
+
+                            taskLogger.info("BundleNodeModulesForSplit${abiName}: Moved ${movedCount} .node files to flattened structure")
+                        }
+
+                        onlyIf {
+                            finalBundleMode && nodeModulesDir.exists()
+                        }
+                    }
+                }
+
+                // Task for universal APK (architecture-specific assets)
+                if (currentSplitsEnabled && currentUniversalApkEnabled) {
+                    tasks.register("BundleNodeModulesForUniversal${abiName}") {
+                        dependsOn "CopyAndroidNodeFilesToUniversalAssets${abiName}"
+                        description = "Flatten node_modules structure for ${abiName} (bundle mode, universal APK)"
+
+                        def nodeModulesPath = "${rootProject.projectDir}/app/src/main/assets-${abiName}/public/${nodeDir}/node_modules"
+                        def nodeModulesDir = file(nodeModulesPath)
+                        def nodejsBasePath = "${rootProject.projectDir}/app/src/main/assets-${abiName}/public/${nodeDir}"
+                        def nodejsBaseDir = file(nodejsBasePath)
+                        def taskLogger = logger
+
+                        doLast {
+                            if (!nodeModulesDir.exists()) {
+                                taskLogger.info("BundleNodeModulesForUniversal${abiName}: Directory ${nodeModulesPath} does not exist, skipping")
+                                return
+                            }
+
+                            int movedCount = 0
+                            def nodeFiles = []
+
+                            // First pass: collect all .node files and their target paths
+                            java.nio.file.Files.walkFileTree(nodeModulesDir.toPath(), new java.nio.file.FileVisitor<java.nio.file.Path>() {
+                                java.nio.file.FileVisitResult preVisitDirectory(java.nio.file.Path dir, java.nio.file.attribute.BasicFileAttributes attrs) {
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+
+                                java.nio.file.FileVisitResult visitFile(java.nio.file.Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                                    def fileName = file.fileName.toString()
+                                    if (fileName.endsWith('.node')) {
+                                        // Get path relative to node_modules
+                                        def relativePath = nodeModulesDir.toPath().relativize(file)
+
+                                        // Skip the package name (first part) and use the rest
+                                        def nameCount = relativePath.nameCount
+                                        if (nameCount > 1) {
+                                            // Get subpath starting from index 1 (skip package name)
+                                            def subPath = relativePath.subpath(1, nameCount)
+                                            def flattenedPath = java.nio.file.Paths.get(nodejsBasePath).resolve(subPath)
+                                            nodeFiles.add([source: file, target: flattenedPath])
+                                        }
+                                    }
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+
+                                java.nio.file.FileVisitResult visitFileFailed(java.nio.file.Path file, java.io.IOException exc) {
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+
+                                java.nio.file.FileVisitResult postVisitDirectory(java.nio.file.Path dir, java.io.IOException exc) {
+                                    return java.nio.file.FileVisitResult.CONTINUE
+                                }
+                            })
+
+                            // Second pass: move files to flattened locations
+                            nodeFiles.each { fileInfo ->
+                                try {
+                                    def targetPath = fileInfo.target
+                                    def targetParent = targetPath.parent
+                                    if (targetParent != null && !java.nio.file.Files.exists(targetParent)) {
+                                        java.nio.file.Files.createDirectories(targetParent)
+                                    }
+                                    java.nio.file.Files.copy(fileInfo.source, targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                                    movedCount++
+                                } catch (Exception e) {
+                                    taskLogger.warn("BundleNodeModulesForUniversal${abiName}: Failed to move ${fileInfo.source} to ${fileInfo.target}: ${e.message}")
+                                }
+                            }
+
+                            // Third pass: delete the entire node_modules directory
+                            if (nodeModulesDir.exists()) {
+                                try {
+                                    nodeModulesDir.deleteDir()
+                                    taskLogger.info("BundleNodeModulesForUniversal${abiName}: Deleted node_modules directory")
+                                } catch (Exception e) {
+                                    taskLogger.warn("BundleNodeModulesForUniversal${abiName}: Failed to delete node_modules directory: ${e.message}")
+                                }
+                            }
+
+                            taskLogger.info("BundleNodeModulesForUniversal${abiName}: Moved ${movedCount} .node files to flattened structure")
+                        }
+
+                        onlyIf {
+                            finalBundleMode && nodeModulesDir.exists()
+                        }
+                    }
+                }
+
+                // Task for no splits (main assets)
+                tasks.register("BundleNodeModulesForMain${abiName}") {
+                    def mainAssetsTask = project.tasks.findByName("CopyAndroidNodeFilesToAppAssets${abiName}")
+                    if (mainAssetsTask != null) {
+                        dependsOn mainAssetsTask
+                    }
+                    description = "Flatten node_modules structure for ${abiName} (bundle mode, no splits)"
+
+                    def nodeModulesPath = "${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}/node_modules"
+                    def nodeModulesDir = file(nodeModulesPath)
+                    def nodejsBasePath = "${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}"
+                    def nodejsBaseDir = file(nodejsBasePath)
+                    def taskLogger = logger
+
+                    doLast {
+                        if (!nodeModulesDir.exists()) {
+                            taskLogger.info("BundleNodeModulesForMain${abiName}: Directory ${nodeModulesPath} does not exist, skipping")
+                            return
+                        }
+
+                        int movedCount = 0
+                        def nodeFiles = []
+
+                        // First pass: collect all .node files and their target paths
+                        java.nio.file.Files.walkFileTree(nodeModulesDir.toPath(), new java.nio.file.FileVisitor<java.nio.file.Path>() {
+                            java.nio.file.FileVisitResult preVisitDirectory(java.nio.file.Path dir, java.nio.file.attribute.BasicFileAttributes attrs) {
+                                return java.nio.file.FileVisitResult.CONTINUE
+                            }
+
+                            java.nio.file.FileVisitResult visitFile(java.nio.file.Path file, java.nio.file.attribute.BasicFileAttributes attrs) {
+                                def fileName = file.fileName.toString()
+                                if (fileName.endsWith('.node')) {
+                                    // Get path relative to node_modules
+                                    def relativePath = nodeModulesDir.toPath().relativize(file)
+                                    def pathParts = relativePath.toString().split(java.io.File.separator)
+
+                                    // Skip the package name (first part) and use the rest
+                                    if (pathParts.length > 1) {
+                                        def flattenedPath = java.nio.file.Paths.get(nodejsBasePath, pathParts[1..-1].join(java.io.File.separator))
+                                        nodeFiles.add([source: file, target: flattenedPath])
+                                    }
+                                }
+                                return java.nio.file.FileVisitResult.CONTINUE
+                            }
+
+                            java.nio.file.FileVisitResult visitFileFailed(java.nio.file.Path file, java.io.IOException exc) {
+                                return java.nio.file.FileVisitResult.CONTINUE
+                            }
+
+                            java.nio.file.FileVisitResult postVisitDirectory(java.nio.file.Path dir, java.io.IOException exc) {
+                                return java.nio.file.FileVisitResult.CONTINUE
+                            }
+                        })
+
+                        // Second pass: move files to flattened locations
+                        nodeFiles.each { fileInfo ->
+                            try {
+                                def targetPath = fileInfo.target
+                                def targetParent = targetPath.parent
+                                if (targetParent != null && !java.nio.file.Files.exists(targetParent)) {
+                                    java.nio.file.Files.createDirectories(targetParent)
+                                }
+                                java.nio.file.Files.copy(fileInfo.source, targetPath, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                                movedCount++
+                            } catch (Exception e) {
+                                taskLogger.warn("BundleNodeModulesForMain${abiName}: Failed to move ${fileInfo.source} to ${fileInfo.target}: ${e.message}")
+                            }
+                        }
+
+                        // Third pass: delete the entire node_modules directory
+                        if (nodeModulesDir.exists()) {
+                            try {
+                                nodeModulesDir.deleteDir()
+                                taskLogger.info("BundleNodeModulesForMain${abiName}: Deleted node_modules directory")
+                            } catch (Exception e) {
+                                taskLogger.warn("BundleNodeModulesForMain${abiName}: Failed to delete node_modules directory: ${e.message}")
+                            }
+                        }
+
+                        taskLogger.info("BundleNodeModulesForMain${abiName}: Moved ${movedCount} .node files to flattened structure")
+                    }
+
+                    onlyIf {
+                        if (!finalBundleMode) {
+                            return false
+                        }
+                        if (!currentSplitsEnabled) {
+                            // Only run for primary ABI when no splits
+                            return abiName == 'arm64-v8a'
+                        }
+                        return false
                     }
                 }
             }
@@ -968,17 +1516,17 @@ import org.gradle.util.GradleVersion
                         description = "Remove .node files from main assets (split APKs only, not universal)"
 
                         def targetDirPath = "${rootProject.projectDir}/app/src/main/assets/public/${nodeDir}/node_modules"
-                        def targetDir = new File(targetDirPath)
+                        def targetDir = file(targetDirPath)
 
                         // Delete all .node files recursively
-                        delete fileTree(dir: targetDirPath) {
+                        delete fileTree(dir: targetDir) {
                             include "**/*.node"
                         }
 
                         doFirst {
                             logger.info("capacitor-nodejs: RemoveNodeFilesFromMainAssets: Checking ${targetDirPath}")
                             if (targetDir.exists()) {
-                                def nodeFiles = fileTree(dir: targetDirPath) {
+                                def nodeFiles = fileTree(dir: targetDir) {
                                     include "**/*.node"
                                 }
                                 logger.info("capacitor-nodejs: RemoveNodeFilesFromMainAssets: Found ${nodeFiles.files.size()} .node files to remove")
@@ -996,7 +1544,7 @@ import org.gradle.util.GradleVersion
                                 return false
                             }
                             // Check if there are any .node files to delete
-                            def nodeFiles = fileTree(dir: targetDirPath) {
+                            def nodeFiles = fileTree(dir: targetDir) {
                                 include "**/*.node"
                             }
                             def hasNodeFiles = !nodeFiles.isEmpty()
@@ -1071,6 +1619,15 @@ import org.gradle.util.GradleVersion
                                 if (mergeAssetsTask != null) {
                                     mergeAssetsTask.dependsOn mainAssetsTask
                                     logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets will depend on CopyAndroidNodeFilesToAppAssets${abiName} (no splits)")
+
+                                    // Hook up bundle task if bundle mode is enabled
+                                    if (finalBundleMode) {
+                                        def bundleTask = project.tasks.findByName("BundleNodeModulesForMain${abiName}")
+                                        if (bundleTask != null) {
+                                            mergeAssetsTask.dependsOn bundleTask
+                                            logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets will depend on BundleNodeModulesForMain${abiName} (bundle mode)")
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1105,12 +1662,30 @@ import org.gradle.util.GradleVersion
                                 if (mergeSplitAssetsTask != null) {
                                     mergeSplitAssetsTask.dependsOn splitAssetsTask
                                     logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets${abiSanitized.capitalize()} will depend on CopyAndroidNodeFilesToSplitAssets${abiName}")
+
+                                    // Hook up bundle task if bundle mode is enabled
+                                    if (finalBundleMode) {
+                                        def bundleTask = project.tasks.findByName("BundleNodeModulesForSplit${abiName}")
+                                        if (bundleTask != null) {
+                                            mergeSplitAssetsTask.dependsOn bundleTask
+                                            logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets${abiSanitized.capitalize()} will depend on BundleNodeModulesForSplit${abiName} (bundle mode)")
+                                        }
+                                    }
                                 } else {
                                     // Fallback: also hook into main mergeAssets task
                                     def mergeAssetsTask = appProject.tasks.findByName("merge${variant.name.capitalize()}Assets")
                                     if (mergeAssetsTask != null) {
                                         mergeAssetsTask.dependsOn splitAssetsTask
                                         logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets will also depend on CopyAndroidNodeFilesToSplitAssets${abiName}")
+
+                                        // Hook up bundle task if bundle mode is enabled
+                                        if (finalBundleMode) {
+                                            def bundleTask = project.tasks.findByName("BundleNodeModulesForSplit${abiName}")
+                                            if (bundleTask != null) {
+                                                mergeAssetsTask.dependsOn bundleTask
+                                                logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets will depend on BundleNodeModulesForSplit${abiName} (bundle mode)")
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1146,12 +1721,64 @@ import org.gradle.util.GradleVersion
                                 if (mergeSplitAssetsTask != null) {
                                     mergeSplitAssetsTask.dependsOn universalAssetsTask
                                     logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets${abiSanitized.capitalize()} will depend on CopyAndroidNodeFilesToUniversalAssets${abiName}")
+
+                                    // Hook up bundle task if bundle mode is enabled
+                                    if (finalBundleMode) {
+                                        def bundleTask = project.tasks.findByName("BundleNodeModulesForUniversal${abiName}")
+                                        if (bundleTask != null) {
+                                            mergeSplitAssetsTask.dependsOn bundleTask
+                                            logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets${abiSanitized.capitalize()} will depend on BundleNodeModulesForUniversal${abiName} (bundle mode)")
+                                        }
+                                    }
+
+                                    // Also copy to main assets for split APKs
+                                    def abiSanitizedForTask = abiName.replaceAll('-', '').replaceAll('_', '')
+                                    def copyToMainTask = project.tasks.findByName("CopyAndroidNodeFilesToMainAssetsForSplit${abiSanitizedForTask}")
+                                    if (copyToMainTask != null) {
+                                        mergeSplitAssetsTask.dependsOn copyToMainTask
+                                        logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets${abiSanitized.capitalize()} will depend on CopyAndroidNodeFilesToMainAssetsForSplit${abiSanitizedForTask} (split APK)")
+                                    }
                                 }
                                 // Also hook into main mergeAssets task to ensure universal APK includes all architectures
                                 def mergeAssetsTask = appProject.tasks.findByName("merge${variant.name.capitalize()}Assets")
                                 if (mergeAssetsTask != null) {
                                     mergeAssetsTask.dependsOn universalAssetsTask
                                     logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets will also depend on CopyAndroidNodeFilesToUniversalAssets${abiName} (universal APK)")
+
+                                    // Hook up bundle task if bundle mode is enabled
+                                    if (finalBundleMode) {
+                                        def bundleTask = project.tasks.findByName("BundleNodeModulesForUniversal${abiName}")
+                                        if (bundleTask != null) {
+                                            mergeAssetsTask.dependsOn bundleTask
+                                            logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets will depend on BundleNodeModulesForUniversal${abiName} (bundle mode)")
+                                        }
+                                        // Also clean main assets node_modules when universalApk is enabled
+                                        def bundleMainAssetsTask = project.tasks.findByName("BundleNodeModulesFromMainAssets")
+                                        if (bundleMainAssetsTask != null) {
+                                            mergeAssetsTask.dependsOn bundleMainAssetsTask
+                                            logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets will depend on BundleNodeModulesFromMainAssets (bundle mode, universal APK)")
+                                        }
+                                    }
+
+                                    // Also copy to main assets for split APKs (each split APK needs its architecture's .node files)
+                                    // This must run AFTER bundle tasks to ensure .node files aren't deleted
+                                    def abiSanitizedForTask = abiName.replaceAll('-', '').replaceAll('_', '')
+                                    def copyToMainTask = project.tasks.findByName("CopyAndroidNodeFilesToMainAssetsForSplit${abiSanitizedForTask}")
+                                    if (copyToMainTask != null) {
+                                        mergeAssetsTask.dependsOn copyToMainTask
+                                        logger.info("capacitor-nodejs: merge${variant.name.capitalize()}Assets will depend on CopyAndroidNodeFilesToMainAssetsForSplit${abiSanitizedForTask} (split APK)")
+                                        // Make copy task depend on bundle tasks to ensure it runs after
+                                        if (finalBundleMode) {
+                                            def bundleTask = project.tasks.findByName("BundleNodeModulesForUniversal${abiName}")
+                                            if (bundleTask != null) {
+                                                copyToMainTask.dependsOn bundleTask
+                                            }
+                                            def bundleMainAssetsTask = project.tasks.findByName("BundleNodeModulesFromMainAssets")
+                                            if (bundleMainAssetsTask != null) {
+                                                copyToMainTask.dependsOn bundleMainAssetsTask
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
