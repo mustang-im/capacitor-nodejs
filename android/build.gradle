@@ -239,7 +239,7 @@ def getArchitectureConfig(abiName) {
     return config
 }
 
-def buildGypDefines(archConfig) {
+def buildGypDefines(archConfig, libnodeDir = null) {
     def defines = "target_arch=${archConfig.arch} v8_target_arch=${archConfig.v8Arch} android_target_arch=${archConfig.arch}"
 
     if (isMacOS()) {
@@ -250,6 +250,13 @@ def buildGypDefines(archConfig) {
         defines += " host_os=linux OS=android"
     } else {
         throw new GradleException("Unsupported operating system for nodejs-mobile native builds: ${System.getProperty('os.name')}")
+    }
+
+    // Add libnode linking information to GYP defines if provided
+    if (libnodeDir && libnodeDir.exists()) {
+        def libnodePath = new File(libnodeDir, "libnode.so").absolutePath
+        defines += " node_libfile=${libnodePath}"
+        defines += " node_shared=true"
     }
 
     return defines
@@ -393,11 +400,18 @@ afterEvaluate {
         }
         def ndkBundlePath = ndkDirectory.absolutePath
 
+        // Get minSdkVersion from app project if available, otherwise use plugin's default
+        // We'll resolve this in the task closure to avoid configuration cache issues
+
         android.defaultConfig.ndk.abiFilters.each { abiName ->
             def archConfig = getArchitectureConfig(abiName)
             def buildDir = rootProject.layout.buildDirectory.get().asFile
             def standaloneToolchain = new File(buildDir, "standalone-toolchains/${archConfig.toolchainName}")
-            def npmGypDefines = buildGypDefines(archConfig)
+            // Map Android ABI to libnode directory name
+            def libnodeAbiName = abiName == 'armeabi-v7a' ? 'arm' : (abiName == 'arm64-v8a' ? 'arm64' : abiName)
+            def libnodePath = "${project.projectDir}/libnode/bin/${libnodeAbiName}/libnode.so"
+            def libnodeDir = new File(libnodePath).parentFile
+            def npmGypDefines = buildGypDefines(archConfig, libnodeDir)
             def tempBuildDir = new File(buildDir, "nodejs-native-assets-temp-build/nodejs-native-assets-${abiName}")
             def nativeAssetsDir = new File(buildDir, "nodejs-native-assets/nodejs-native-assets-${abiName}")
             // Resolve toolchain scripts before task closure for configuration cache compatibility
@@ -425,8 +439,12 @@ afterEvaluate {
                 }
             }
 
+            // Use plugin's minSdk (defaults to 23) - can be overridden via project property
+            def minSdkApiLevel = project.findProperty('minSdkVersion')?.toInteger() ?: android.defaultConfig.minSdk?.get() ?: 23
+
             tasks.register("MakeToolchain${abiName}", Exec) {
                 description = "Building a native toolchain to compile nodejs-mobile native modules for ${abiName}."
+
                 // NDK r23+ uses Python script instead of shell script
                 if (toolchainScriptFile.exists()) {
                     // Use Python script (NDK r23+)
@@ -434,7 +452,7 @@ afterEvaluate {
                     args = [
                         toolchainScriptFile.absolutePath,
                         "--arch=${archConfig.arch}",
-                        "--api=22",
+                        "--api=${minSdkApiLevel}",
                         "--install-dir=${standaloneToolchain.absolutePath}",
                         "--stl=libc++",
                         "--force"
@@ -448,11 +466,12 @@ afterEvaluate {
                         "--install-dir=${standaloneToolchain.absolutePath}",
                         "--stl=libc++",
                         "--force",
-                        "--platform=android-22"
+                        "--platform=android-${minSdkApiLevel}"
                     ]
                 } else {
                     throw new GradleException("Could not find make-standalone-toolchain script in NDK at ${ndkBundlePath}")
                 }
+
                 outputs.dir standaloneToolchain
             }
 
@@ -582,6 +601,10 @@ exec "${realCXX}" "\${filtered_args[@]}"
 # Filter out -arch flags, macOS-specific flags, and macOS linker flags
 # Also filter from LDFLAGS if present
 export LDFLAGS=\$(echo "\$LDFLAGS" | sed -E 's/(-arch[[:space:]]+[^[:space:]]+|-arch[^[:space:]]*|-dead_strip|-bundle|-undefined[[:space:]]+dynamic_lookup|-mmacosx-version-min=[^[:space:]]*|-Wl,-dead_strip)[[:space:]]*//g')
+# Add libnode.so to LDFLAGS if not already present
+if [[ ! "\$LDFLAGS" =~ -lnode ]]; then
+    export LDFLAGS="\$LDFLAGS -L${libnodeDir.absolutePath} -lnode -Wl,-rpath,${libnodeDir.absolutePath}"
+fi
 # Replace -bundle with -shared for Android shared libraries
 filtered_args=()
 skip_next=false
@@ -605,6 +628,10 @@ for arg in "\$@"; do
     fi
     filtered_args+=("\$arg")
 done
+# Always add libnode.so linking flags at the end
+filtered_args+=("-L${libnodeDir.absolutePath}")
+filtered_args+=("-lnode")
+filtered_args+=("-Wl,-rpath,${libnodeDir.absolutePath}")
 exec "${realCXX}" "\${filtered_args[@]}"
 """
                     linkWrapper.setExecutable(true)
@@ -648,7 +675,7 @@ exec "${realCXX}" "\${filtered_args[@]}"
                 }
                 environment('CFLAGS', filteredCFLAGS)
                 environment('CXXFLAGS', filteredCXXFLAGS)
-                // Also set LDFLAGS to avoid macOS-specific flags
+                // Also set LDFLAGS to avoid macOS-specific flags and link against libnode.so
                 def existingLDFLAGS = System.getenv('LDFLAGS') ?: ''
                 def filteredLDFLAGS = existingLDFLAGS.split(' ').findAll {
                     !it.startsWith('-arch') &&
@@ -657,7 +684,21 @@ exec "${realCXX}" "\${filtered_args[@]}"
                     !it.equals('-undefined') &&
                     !it.startsWith('-mmacosx-version-min')
                 }.join(' ')
+                // Add libnode.so to linker flags so native modules link against it
+                if (libnodeDir.exists()) {
+                    filteredLDFLAGS = (filteredLDFLAGS + " -L${libnodeDir.absolutePath} -lnode -Wl,-rpath,${libnodeDir.absolutePath}").trim()
+                    logger.info("capacitor-nodejs: Adding libnode.so to LDFLAGS: -L${libnodeDir.absolutePath} -lnode -Wl,-rpath,${libnodeDir.absolutePath}")
+                } else {
+                    logger.warn("capacitor-nodejs: libnode directory not found at ${libnodeDir.absolutePath}, native modules may not link correctly")
+                }
                 environment('LDFLAGS', filteredLDFLAGS)
+
+                // Also set npm_config variables that nodejs-mobile-gyp uses for linking
+                environment('npm_config_node_libfile', libnodePath)
+                environment('npm_config_node_shared', 'true')
+
+                // Set GYP variables for linking (nodejs-mobile-gyp may use these)
+                environment('GYP_DEFINES', "${npmGypDefines} node_libfile=${libnodePath} node_shared=true")
                 // Override any GYP-injected macOS flags by setting empty values
                 environment('MACOSX_DEPLOYMENT_TARGET', '')
                 environment('SDKROOT', '')
