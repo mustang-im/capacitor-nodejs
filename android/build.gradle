@@ -31,7 +31,9 @@ android {
         }
 
         ndk {
-            // abiFilters will be configured in afterEvaluate to read from app project
+            // abiFilters will be configured below to read from app project
+            // Default to common architectures, will be overridden in afterEvaluate if app project has abiFilters
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
         }
     }
     buildTypes {
@@ -249,42 +251,81 @@ def findNodeGypPath() {
     return null
 }
 
-// Native module building support
-afterEvaluate {
-    // Find the project's www/assets folder
-    def appProject = project.rootProject.subprojects.find { it.name == 'app' }
-
-    // Configure ndk.abiFilters from app project if available
+// Configure ndk.abiFilters from app project if available
+// This needs to happen before CMake is configured, so we do it during configuration phase
+def configureAbiFilters() {
     def defaultAbiFilters = ["armeabi-v7a", "arm64-v8a", "x86_64"]
+
+    // Try to find app project
+    def appProject = null
+    try {
+        appProject = project.rootProject.subprojects.find { it.name == 'app' }
+    } catch (Exception e) {
+        // App project might not be available yet
+    }
 
     if (appProject && appProject.hasProperty('android')) {
         try {
+            // Try to read abiFilters directly - they should be set by now
             def appAbiFilters = appProject.android.defaultConfig.ndk.abiFilters
             if (appAbiFilters && !appAbiFilters.isEmpty()) {
                 // Update plugin's ndk configuration to match app project
                 android.defaultConfig.ndk.abiFilters.clear()
                 android.defaultConfig.ndk.abiFilters.addAll(appAbiFilters)
-            } else {
-                // App project has no abiFilters configured, use defaults
-                android.defaultConfig.ndk.abiFilters.clear()
-                android.defaultConfig.ndk.abiFilters.addAll(defaultAbiFilters)
+                logger.info("capacitor-nodejs: Configured abiFilters from app project: ${appAbiFilters}")
+                return
             }
         } catch (Exception e) {
-            logger.warn("Could not read abiFilters from app project, using defaults: ${e.message}")
-            android.defaultConfig.ndk.abiFilters.clear()
-            android.defaultConfig.ndk.abiFilters.addAll(defaultAbiFilters)
+            // If direct access fails, try to read from the evaluated project
+            try {
+                def evaluatedAppProject = project.rootProject.subprojects.find { it.name == 'app' && it.state.executed }
+                if (evaluatedAppProject && evaluatedAppProject.hasProperty('android')) {
+                    def appAbiFilters = evaluatedAppProject.android.defaultConfig.ndk.abiFilters
+                    if (appAbiFilters && !appAbiFilters.isEmpty()) {
+                        android.defaultConfig.ndk.abiFilters.clear()
+                        android.defaultConfig.ndk.abiFilters.addAll(appAbiFilters)
+                        logger.info("capacitor-nodejs: Configured abiFilters from evaluated app project: ${appAbiFilters}")
+                        return
+                    }
+                }
+            } catch (Exception e2) {
+                logger.warn("Could not read abiFilters from app project: ${e.message}")
+            }
         }
-    } else {
-        // Try to read from rootProject properties as fallback
-        def rootAbiFilters = project.findProperty('ndkAbiFilters')
-        if (rootAbiFilters) {
-            def abiFiltersList = rootAbiFilters.split(',').collect { it.trim() }
-            android.defaultConfig.ndk.abiFilters.clear()
-            android.defaultConfig.ndk.abiFilters.addAll(abiFiltersList)
-        } else {
-            // Use defaults
-            android.defaultConfig.ndk.abiFilters.clear()
-            android.defaultConfig.ndk.abiFilters.addAll(defaultAbiFilters)
+    }
+
+    // Also try to read from rootProject properties as fallback
+    def rootAbiFilters = project.findProperty('ndkAbiFilters')
+    if (rootAbiFilters) {
+        def abiFiltersList = rootAbiFilters.split(',').collect { it.trim() }
+        android.defaultConfig.ndk.abiFilters.clear()
+        android.defaultConfig.ndk.abiFilters.addAll(abiFiltersList)
+        logger.info("capacitor-nodejs: Configured abiFilters from rootProject property: ${abiFiltersList}")
+    }
+}
+
+// Call during configuration phase
+configureAbiFilters()
+
+// Native module building support
+afterEvaluate {
+    // Find the project's www/assets folder
+    def appProject = project.rootProject.subprojects.find { it.name == 'app' }
+
+    // Ensure abiFilters are still correctly set (in case app project wasn't available earlier)
+    if (appProject && appProject.hasProperty('android')) {
+        try {
+            def appAbiFilters = appProject.android.defaultConfig.ndk.abiFilters
+            if (appAbiFilters && !appAbiFilters.isEmpty()) {
+                def currentFilters = android.defaultConfig.ndk.abiFilters
+                if (currentFilters != appAbiFilters) {
+                    android.defaultConfig.ndk.abiFilters.clear()
+                    android.defaultConfig.ndk.abiFilters.addAll(appAbiFilters)
+                    logger.info("capacitor-nodejs: Updated abiFilters in afterEvaluate: ${appAbiFilters}")
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Could not update abiFilters in afterEvaluate: ${e.message}")
         }
     }
 
