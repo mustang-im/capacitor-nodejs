@@ -11,27 +11,27 @@ ext {
 
 android {
     namespace "net.hampoelz.capacitor.nodejs"
-    
+
     compileSdk project.findProperty('compileSdkVersion')?.toInteger() ?: 35
-    
+
     defaultConfig {
         minSdk project.findProperty('minSdkVersion')?.toInteger() ?: 23
         targetSdk project.findProperty('targetSdkVersion')?.toInteger() ?: 35
-        
+
         versionCode 1
         versionName "1.0"
-        
+
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        
+
         externalNativeBuild {
             cmake {
                 cppFlags ""
                 arguments "-DANDROID_STL=c++_shared"
             }
         }
-        
+
         ndk {
-            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
+            // abiFilters will be configured in afterEvaluate to read from app project
         }
     }
     buildTypes {
@@ -47,7 +47,6 @@ android {
         resources {
             excludes += [
                 '**/*.gz',
-                'build-native-modules-MacOS-helper-script.sh',
                 'NODEJS_MOBILE_BUILD_NATIVE_MODULES_VALUE.txt'
             ]
         }
@@ -73,7 +72,7 @@ dependencies {
     implementation fileTree(dir: 'libs', include: ['*.jar'])
     implementation project(':capacitor-android')
     implementation "androidx.appcompat:appcompat:${androidxAppCompatVersion}"
-    
+
     testImplementation "junit:junit:${junitVersion}"
     androidTestImplementation "androidx.test.ext:junit:${androidxJunitVersion}"
     androidTestImplementation "androidx.test.espresso:espresso-core:${androidxEspressoCoreVersion}"
@@ -95,19 +94,19 @@ def findProjectWWWPath(appProject) {
             return assetsDir.absolutePath
         }
     }
-    
+
     // Fallback: try to find assets in common locations
     def possiblePaths = [
         file("${project.rootProject.projectDir}/android/app/src/main/assets/public"),
         file("${project.projectDir}/src/main/assets/public")
     ]
-    
+
     for (def path : possiblePaths) {
         if (path.exists()) {
             return path.absolutePath
         }
     }
-    
+
     return null
 }
 
@@ -116,20 +115,20 @@ def shouldBuildNativeModules(projectWWW) {
     if (envValue != null) {
         return "1".equals(envValue)
     }
-    
+
     // Check if preference was saved to a file during prepare phase
     def preferenceFile = file("${projectWWW}/NODEJS_MOBILE_BUILD_NATIVE_MODULES_VALUE.txt")
     if (preferenceFile.exists()) {
         return "1".equals(preferenceFile.text.trim())
     }
-    
+
     // Auto-detect: check for .gyp files
     def nodejsProjectDir = file("${projectWWW}/nodejs")
     if (nodejsProjectDir.exists()) {
         def gypFiles = fileTree(dir: "${projectWWW}/nodejs", include: "**/*.gyp")
         return gypFiles.files.any { !it.directory }
     }
-    
+
     return false
 }
 
@@ -137,28 +136,50 @@ def findNpmCommand(projectWWW) {
     if (!isMacOS()) {
         return 'npm'
     }
-    
-    // On macOS, check if npm is in PATH
+
+    // On macOS, check if npm is in PATH using a simple check
     try {
-        def commandResult = exec {
-            commandLine 'command', '-v', 'npm'
-            ignoreExitValue = true
+        def pathEnv = System.getenv('PATH')
+        if (pathEnv) {
+            def pathDirs = pathEnv.split(File.pathSeparator)
+            for (def pathDir : pathDirs) {
+                def npmPath = new File(pathDir, 'npm')
+                if (npmPath.exists() && npmPath.canExecute()) {
+                    return 'npm'
+                }
+            }
         }
-        if (commandResult.exitValue == 0) {
+        // Also check common npm locations
+        def commonNpmPaths = [
+            '/usr/local/bin/npm',
+            '/opt/homebrew/bin/npm'
+        ]
+        for (def npmPathStr : commonNpmPaths) {
+            def npmFile = file(npmPathStr)
+            if (npmFile.exists() && npmFile.canExecute()) {
+                return 'npm'
+            }
+        }
+        // Check nvm location (common pattern)
+        def homeDir = System.getProperty('user.home')
+        def nvmNpm = file("${homeDir}/.nvm/versions/node")
+        if (nvmNpm.exists() && nvmNpm.isDirectory()) {
+            // If nvm directory exists, assume npm might be available via PATH
             return 'npm'
         }
     } catch (Exception e) {
         logger.warn("Couldn't check for npm in PATH: ${e.message}")
     }
-    
-    // Fallback to helper script
-    logger.warn("Couldn't find npm in the PATH for building native modules. Will try to use a helper script.")
-    return "${projectWWW}/build-native-modules-MacOS-helper-script.sh"
+
+    // If we can't find npm explicitly, just return 'npm' and let the system PATH handle it
+    // The build will fail with a clear error if npm is truly not available
+    logger.warn("Couldn't find npm in common locations. Will use 'npm' from PATH.")
+    return 'npm'
 }
 
 def getArchitectureConfig(abiName) {
     def arch = abiName == 'armeabi-v7a' ? 'arm' : (abiName == 'arm64-v8a' ? 'arm64' : abiName)
-    
+
     def config = [:]
     switch (arch) {
         case 'arm':
@@ -192,21 +213,23 @@ def getArchitectureConfig(abiName) {
         default:
             throw new GradleException("Unsupported architecture for nodejs-mobile native modules: ${arch}")
     }
-    
+
     return config
 }
 
 def buildGypDefines(archConfig) {
     def defines = "target_arch=${archConfig.arch} v8_target_arch=${archConfig.v8Arch} android_target_arch=${archConfig.arch}"
-    
+
     if (isMacOS()) {
         defines += " host_os=mac OS=android"
+        // Prevent macOS-specific compiler flags from being used
+        defines += " mac_sdk= mac_sdk_min= mac_deployment_target="
     } else if (isLinux()) {
         defines += " host_os=linux OS=android"
     } else {
         throw new GradleException("Unsupported operating system for nodejs-mobile native builds: ${System.getProperty('os.name')}")
     }
-    
+
     return defines
 }
 
@@ -216,13 +239,13 @@ def findNodeGypPath() {
         file("${project.projectDir}/node_modules/nodejs-mobile-gyp/bin/node-gyp.js"),
         file("${project.rootProject.projectDir}/../../node_modules/nodejs-mobile-gyp/bin/node-gyp.js")
     ]
-    
+
     for (def gypPath : possiblePaths) {
         if (gypPath.exists()) {
             return gypPath.absolutePath
         }
     }
-    
+
     return null
 }
 
@@ -230,8 +253,43 @@ def findNodeGypPath() {
 afterEvaluate {
     // Find the project's www/assets folder
     def appProject = project.rootProject.subprojects.find { it.name == 'app' }
+
+    // Configure ndk.abiFilters from app project if available
+    def defaultAbiFilters = ["armeabi-v7a", "arm64-v8a", "x86_64"]
+
+    if (appProject && appProject.hasProperty('android')) {
+        try {
+            def appAbiFilters = appProject.android.defaultConfig.ndk.abiFilters
+            if (appAbiFilters && !appAbiFilters.isEmpty()) {
+                // Update plugin's ndk configuration to match app project
+                android.defaultConfig.ndk.abiFilters.clear()
+                android.defaultConfig.ndk.abiFilters.addAll(appAbiFilters)
+            } else {
+                // App project has no abiFilters configured, use defaults
+                android.defaultConfig.ndk.abiFilters.clear()
+                android.defaultConfig.ndk.abiFilters.addAll(defaultAbiFilters)
+            }
+        } catch (Exception e) {
+            logger.warn("Could not read abiFilters from app project, using defaults: ${e.message}")
+            android.defaultConfig.ndk.abiFilters.clear()
+            android.defaultConfig.ndk.abiFilters.addAll(defaultAbiFilters)
+        }
+    } else {
+        // Try to read from rootProject properties as fallback
+        def rootAbiFilters = project.findProperty('ndkAbiFilters')
+        if (rootAbiFilters) {
+            def abiFiltersList = rootAbiFilters.split(',').collect { it.trim() }
+            android.defaultConfig.ndk.abiFilters.clear()
+            android.defaultConfig.ndk.abiFilters.addAll(abiFiltersList)
+        } else {
+            // Use defaults
+            android.defaultConfig.ndk.abiFilters.clear()
+            android.defaultConfig.ndk.abiFilters.addAll(defaultAbiFilters)
+        }
+    }
+
     def projectWWW = findProjectWWWPath(appProject)
-    
+
     if (projectWWW == null) {
         logger.warn('nodejs-mobile: Could not find the www folder. Native module building will be skipped.')
         return
@@ -242,8 +300,38 @@ afterEvaluate {
 
     if (shouldRebuildNativeModules) {
         def npmCommandName = findNpmCommand(projectWWW)
-        def ndkBundlePath = android.ndkDirectory.get().asFile.absolutePath
-        
+        def ndkDirectory
+        def ndkDirValue = android.ndkDirectory
+        // Handle Provider (AGP 8+) or already resolved File/Directory
+        if (ndkDirValue instanceof java.io.File) {
+            // Already a File
+            ndkDirectory = ndkDirValue
+        } else {
+            try {
+                // Try calling get() - works for Provider
+                def resolved = ndkDirValue.get()
+                if (resolved instanceof java.io.File) {
+                    ndkDirectory = resolved
+                } else if (resolved.metaClass.hasProperty(resolved, 'asFile')) {
+                    // It's a Directory, convert to File
+                    ndkDirectory = resolved.asFile
+                } else {
+                    ndkDirectory = resolved as File
+                }
+            } catch (MissingMethodException e) {
+                // If get() doesn't exist, check if it has asFile property
+                if (ndkDirValue.metaClass.hasProperty(ndkDirValue, 'asFile')) {
+                    ndkDirectory = ndkDirValue.asFile
+                } else {
+                    ndkDirectory = ndkDirValue as File
+                }
+            } catch (Exception e) {
+                // Fallback: try direct cast
+                ndkDirectory = ndkDirValue as File
+            }
+        }
+        def ndkBundlePath = ndkDirectory.absolutePath
+
         android.defaultConfig.ndk.abiFilters.each { abiName ->
             def archConfig = getArchitectureConfig(abiName)
             def buildDir = rootProject.layout.buildDirectory.get().asFile
@@ -251,46 +339,59 @@ afterEvaluate {
             def npmGypDefines = buildGypDefines(archConfig)
             def tempBuildDir = new File(buildDir, "nodejs-native-assets-temp-build/nodejs-native-assets-${abiName}")
             def nativeAssetsDir = new File(buildDir, "nodejs-native-assets/nodejs-native-assets-${abiName}")
-            
+            // Resolve toolchain scripts before task closure for configuration cache compatibility
+            def toolchainScriptPath = "${ndkBundlePath}/build/tools/make_standalone_toolchain.py"
+            def shellScriptPath = "${ndkBundlePath}/build/tools/make-standalone-toolchain.sh"
+            def toolchainScriptFile = new File(toolchainScriptPath)
+            def shellScriptFile = new File(shellScriptPath)
+
             tasks.register("CopyNodeProjectAssets${abiName}", Copy) {
                 description = "Copying node assets to build native modules for ${abiName}."
                 from("${projectWWW}/nodejs/") {
                     exclude "**/.bin"
                 }
                 into "${tempBuildDir}/nodejs-project/"
-                
+
                 // Exclude JS files from inputs to avoid unnecessary rebuilds
                 inputs.files fileTree("${projectWWW}/nodejs/") {
                     exclude "**/*.js"
                     exclude "**/node_modules/**/*.js"
                 }
                 outputs.file "${tempBuildDir}/copy.timestamp"
-                
+
                 doLast {
-                    if (isMacOS()) {
-                        def helperScript = file("${projectWWW}/build-native-modules-MacOS-helper-script.sh")
-                        if (helperScript.exists()) {
-                            copy {
-                                from helperScript
-                                into tempBuildDir
-                            }
-                        }
-                    }
                     new File(tempBuildDir, "copy.timestamp").text = new Date().format('yyyy-MM-dd HH:mm:ss')
                 }
             }
 
             tasks.register("MakeToolchain${abiName}", Exec) {
                 description = "Building a native toolchain to compile nodejs-mobile native modules for ${abiName}."
-                executable = "${ndkBundlePath}/build/tools/make-standalone-toolchain.sh"
-                args = [
-                    "--toolchain=${archConfig.toolchainName}-4.9",
-                    "--arch=${archConfig.arch}",
-                    "--install-dir=${standaloneToolchain.absolutePath}",
-                    "--stl=libc++",
-                    "--force",
-                    "--platform=android-22"
-                ]
+                // NDK r23+ uses Python script instead of shell script
+                if (toolchainScriptFile.exists()) {
+                    // Use Python script (NDK r23+)
+                    executable = "python3"
+                    args = [
+                        toolchainScriptFile.absolutePath,
+                        "--arch=${archConfig.arch}",
+                        "--api=22",
+                        "--install-dir=${standaloneToolchain.absolutePath}",
+                        "--stl=libc++",
+                        "--force"
+                    ]
+                } else if (shellScriptFile.exists()) {
+                    // Use shell script (older NDK versions)
+                    executable = shellScriptFile.absolutePath
+                    args = [
+                        "--toolchain=${archConfig.toolchainName}-4.9",
+                        "--arch=${archConfig.arch}",
+                        "--install-dir=${standaloneToolchain.absolutePath}",
+                        "--stl=libc++",
+                        "--force",
+                        "--platform=android-22"
+                    ]
+                } else {
+                    throw new GradleException("Could not find make-standalone-toolchain script in NDK at ${ndkBundlePath}")
+                }
                 outputs.dir standaloneToolchain
             }
 
@@ -299,33 +400,196 @@ afterEvaluate {
                 description = "Building native modules for ${abiName}."
                 workingDir "${tempBuildDir}/nodejs-project/"
                 commandLine npmCommandName, '--verbose', 'rebuild', '--build-from-source'
-                
+
                 inputs.file "${tempBuildDir}/copy.timestamp"
                 outputs.dir "${tempBuildDir}/nodejs-project/"
-                
+
                 environment('npm_config_node_engine', 'v8')
                 environment('npm_config_nodedir', "${project.projectDir}/libnode/")
-                
+
                 def npmGypPath = findNodeGypPath()
                 if (npmGypPath != null) {
                     environment('npm_config_node_gyp', npmGypPath)
                 }
-                
+
                 environment('npm_config_arch', archConfig.arch)
                 environment('npm_config_platform', 'android')
                 environment('npm_config_format', 'make-android')
-                
+
                 def originalProjectBin = "${projectWWW}/nodejs/node_modules/.bin"
                 if (file(originalProjectBin).exists()) {
                     environment('PATH', "${originalProjectBin}${File.pathSeparator}${System.env.PATH}")
                 }
-                
+
                 environment('TOOLCHAIN', standaloneToolchain.absolutePath)
-                environment('AR', "${standaloneToolchain.absolutePath}/bin/${archConfig.suffix}-ar")
-                environment('CC', "${standaloneToolchain.absolutePath}/bin/${archConfig.suffix}-clang")
-                environment('CXX', "${standaloneToolchain.absolutePath}/bin/${archConfig.suffix}-clang++")
-                environment('LINK', "${standaloneToolchain.absolutePath}/bin/${archConfig.suffix}-clang++")
+                // Use llvm-ar instead of ${archConfig.suffix}-ar
+                def androidAr = "${standaloneToolchain.absolutePath}/bin/llvm-ar"
+                environment('AR', androidAr)
+
+                // Create wrapper scripts directory and files in doFirst to ensure they exist before Exec runs
+                def wrapperDir = new File(buildDir, "compiler-wrappers-${abiName}")
+                def realCC = "${standaloneToolchain.absolutePath}/bin/${archConfig.suffix}-clang"
+                def realCXX = "${standaloneToolchain.absolutePath}/bin/${archConfig.suffix}-clang++"
+
+                doFirst {
+                    wrapperDir.mkdirs()
+
+                    // Override libtool to use Android ar instead of macOS libtool
+                    def libtoolWrapper = new File(wrapperDir, "libtool")
+                    libtoolWrapper.text = """#!/bin/bash
+# Wrapper to use Android ar instead of macOS libtool
+# Extract object files from arguments and use ar to create archive
+if [ "\$1" = "-static" ] && [ "\$2" = "-o" ]; then
+    output_file="\$3"
+    shift 3
+    # Use Android ar to create static library
+    "${androidAr}" rcs "\$output_file" "\$@"
+else
+    # Fallback: try to use ar if it looks like archive creation
+    "${androidAr}" "\$@"
+fi
+"""
+                    libtoolWrapper.setExecutable(true)
+
+                    // Create wrapper scripts that filter out macOS-specific -arch flags
+                    def ccWrapper = new File(wrapperDir, "${archConfig.suffix}-clang")
+                    def cxxWrapper = new File(wrapperDir, "${archConfig.suffix}-clang++")
+                    def linkWrapper = new File(wrapperDir, "${archConfig.suffix}-clang++-link")
+
+                    // Create CC wrapper that filters -arch flags
+                    ccWrapper.text = """#!/bin/bash
+# Filter out -arch flags and macOS-specific flags
+# Also filter from CFLAGS if present
+export CFLAGS=\$(echo "\$CFLAGS" | sed -E 's/(-arch[[:space:]]+[^[:space:]]+|-arch[^[:space:]]*|-fasm-blocks|-mpascal-strings|-mmacosx-version-min=[^[:space:]]*)[[:space:]]*//g')
+filtered_args=()
+skip_next=false
+for arg in "\$@"; do
+    if [ "\$skip_next" = true ]; then
+        skip_next=false
+        continue
+    fi
+    if [ "\$arg" = "-arch" ]; then
+        skip_next=true
+        continue
+    fi
+    if [[ "\$arg" =~ ^-arch ]] || [ "\$arg" = "-fasm-blocks" ] || [ "\$arg" = "-mpascal-strings" ] || [[ "\$arg" =~ ^-mmacosx-version-min ]]; then
+        continue
+    fi
+    filtered_args+=("\$arg")
+done
+exec "${realCC}" "\${filtered_args[@]}"
+"""
+                    ccWrapper.setExecutable(true)
+
+                    // Create CXX wrapper
+                    cxxWrapper.text = """#!/bin/bash
+# Filter out -arch flags and macOS-specific flags
+# Also filter from CXXFLAGS if present
+export CXXFLAGS=\$(echo "\$CXXFLAGS" | sed -E 's/(-arch[[:space:]]+[^[:space:]]+|-arch[^[:space:]]*|-fasm-blocks|-mpascal-strings|-mmacosx-version-min=[^[:space:]]*)[[:space:]]*//g')
+filtered_args=()
+skip_next=false
+for arg in "\$@"; do
+    if [ "\$skip_next" = true ]; then
+        skip_next=false
+        continue
+    fi
+    if [ "\$arg" = "-arch" ]; then
+        skip_next=true
+        continue
+    fi
+    if [[ "\$arg" =~ ^-arch ]] || [ "\$arg" = "-fasm-blocks" ] || [ "\$arg" = "-mpascal-strings" ] || [[ "\$arg" =~ ^-mmacosx-version-min ]]; then
+        continue
+    fi
+    filtered_args+=("\$arg")
+done
+exec "${realCXX}" "\${filtered_args[@]}"
+"""
+                    cxxWrapper.setExecutable(true)
+
+                    // Create LINK wrapper - needs to filter additional macOS linker flags and replace with Android flags
+                    linkWrapper.text = """#!/bin/bash
+# Filter out -arch flags, macOS-specific flags, and macOS linker flags
+# Also filter from LDFLAGS if present
+export LDFLAGS=\$(echo "\$LDFLAGS" | sed -E 's/(-arch[[:space:]]+[^[:space:]]+|-arch[^[:space:]]*|-dead_strip|-bundle|-undefined[[:space:]]+dynamic_lookup|-mmacosx-version-min=[^[:space:]]*|-Wl,-dead_strip)[[:space:]]*//g')
+# Replace -bundle with -shared for Android shared libraries
+filtered_args=()
+skip_next=false
+for arg in "\$@"; do
+    if [ "\$skip_next" = true ]; then
+        skip_next=false
+        continue
+    fi
+    if [ "\$arg" = "-arch" ] || [ "\$arg" = "-undefined" ]; then
+        skip_next=true
+        continue
+    fi
+    # Filter macOS flags including -Wl, prefixed linker flags
+    if [[ "\$arg" =~ ^-arch ]] || [ "\$arg" = "-fasm-blocks" ] || [ "\$arg" = "-mpascal-strings" ] || [ "\$arg" = "dynamic_lookup" ] || [ "\$arg" = "-dead_strip" ] || [ "\$arg" = "-Wl,-dead_strip" ] || [[ "\$arg" =~ ^-mmacosx-version-min ]]; then
+        continue
+    fi
+    # Replace macOS -bundle flag with Android -shared flag
+    if [ "\$arg" = "-bundle" ]; then
+        filtered_args+=("-shared")
+        continue
+    fi
+    filtered_args+=("\$arg")
+done
+exec "${realCXX}" "\${filtered_args[@]}"
+"""
+                    linkWrapper.setExecutable(true)
+                }
+
+                // Override libtool to use Android ar instead of macOS libtool
+                environment('LIBTOOL', androidAr)
+                // Add libtool wrapper to PATH so it's found before system libtool
+                def originalPath = System.getenv('PATH') ?: ''
+                environment('PATH', "${wrapperDir.absolutePath}${File.pathSeparator}${originalPath}")
+
+                // Use wrapper scripts
+                environment('CC', "${wrapperDir.absolutePath}/${archConfig.suffix}-clang")
+                environment('CXX', "${wrapperDir.absolutePath}/${archConfig.suffix}-clang++")
+                environment('LINK', "${wrapperDir.absolutePath}/${archConfig.suffix}-clang++-link")
                 environment('GYP_DEFINES', npmGypDefines)
+
+                // Remove macOS-specific -arch flags that conflict with Android builds
+                // The .gyp/include.gypi file may add macOS flags, so we override them
+                def existingCFLAGS = System.getenv('CFLAGS') ?: ''
+                def existingCXXFLAGS = System.getenv('CXXFLAGS') ?: ''
+                // Filter out -arch flags and macOS-specific flags
+                def filteredCFLAGS = existingCFLAGS.split(' ').findAll {
+                    !it.startsWith('-arch') &&
+                    !it.equals('-fasm-blocks') &&
+                    !it.equals('-mpascal-strings') &&
+                    !it.startsWith('-mmacosx-version-min')
+                }.join(' ')
+                def filteredCXXFLAGS = existingCXXFLAGS.split(' ').findAll {
+                    !it.startsWith('-arch') &&
+                    !it.equals('-fasm-blocks') &&
+                    !it.equals('-mpascal-strings') &&
+                    !it.startsWith('-mmacosx-version-min')
+                }.join(' ')
+                // Add -fPIC for shared library compilation (required for Android)
+                if (!filteredCFLAGS.contains('-fPIC')) {
+                    filteredCFLAGS = (filteredCFLAGS + ' -fPIC').trim()
+                }
+                if (!filteredCXXFLAGS.contains('-fPIC')) {
+                    filteredCXXFLAGS = (filteredCXXFLAGS + ' -fPIC').trim()
+                }
+                environment('CFLAGS', filteredCFLAGS)
+                environment('CXXFLAGS', filteredCXXFLAGS)
+                // Also set LDFLAGS to avoid macOS-specific flags
+                def existingLDFLAGS = System.getenv('LDFLAGS') ?: ''
+                def filteredLDFLAGS = existingLDFLAGS.split(' ').findAll {
+                    !it.startsWith('-arch') &&
+                    !it.equals('-dead_strip') &&
+                    !it.equals('-bundle') &&
+                    !it.equals('-undefined') &&
+                    !it.startsWith('-mmacosx-version-min')
+                }.join(' ')
+                environment('LDFLAGS', filteredLDFLAGS)
+                // Override any GYP-injected macOS flags by setting empty values
+                environment('MACOSX_DEPLOYMENT_TARGET', '')
+                environment('SDKROOT', '')
             }
 
             tasks.register("CopyBuiltNpmAssets${abiName}", Sync) {
@@ -345,32 +609,36 @@ afterEvaluate {
                     new File(nativeAssetsDir, 'file.list'),
                     new File(nativeAssetsDir, 'dir.list')
                 )
-                
+
                 doLast {
-                    if (!nativeAssetsDir.exists()) {
+                    def assetsDir = nativeAssetsDir
+                    if (!assetsDir.exists()) {
                         return
                     }
-                    
+
                     def fileList = new StringBuilder()
                     def dirList = new StringBuilder()
-                    
-                    fileTree(nativeAssetsDir).visit { assetFile ->
-                        if (assetFile.isDirectory()) {
-                            dirList.append("${assetFile.relativePath}\n")
+                    def basePath = assetsDir.toPath()
+
+                    // Use Java File API for configuration cache compatibility
+                    assetsDir.eachFileRecurse { file ->
+                        def relativePath = basePath.relativize(file.toPath()).toString().replace('\\', '/')
+                        if (file.isDirectory()) {
+                            dirList.append("${relativePath}\n")
                         } else {
-                            fileList.append("${assetFile.relativePath}\n")
+                            fileList.append("${relativePath}\n")
                         }
                     }
-                    
-                    new File(nativeAssetsDir, 'file.list').text = fileList.toString()
-                    new File(nativeAssetsDir, 'dir.list').text = dirList.toString()
+
+                    new File(assetsDir, 'file.list').text = fileList.toString()
+                    new File(assetsDir, 'dir.list').text = dirList.toString()
                 }
             }
-            
+
             tasks.named('preBuild').configure {
                 dependsOn "GenerateNodeNativeAssetsLists${abiName}"
             }
-            
+
             // Add the native assets directory to the assets source set
             def targetProject = appProject ?: project
             targetProject.android.sourceSets.main.assets.srcDirs += nativeAssetsDir.parentFile
