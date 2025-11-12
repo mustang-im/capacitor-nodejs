@@ -52,7 +52,8 @@
     "watch": "tsc --watch",
     "pack:bridge": "cd assets/types/bridge && npm pack --pack-destination ../ && mv ../types-bridge-*.tgz ../bridge.tgz",
     "pack": "npm run pack:bridge && npm pack",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "capacitor:copy:after": "node install/hooks/dist/after-copy.js"
   },
   "devDependencies": {
     "@capacitor/android": "^7.0.0",
