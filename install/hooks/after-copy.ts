@@ -45,7 +45,6 @@ async function main() {
       'after-prepare-native-modules-preference.js',
       'after-prepare-patch-npm-packages.js',
       'after-prepare-build-node-assets-lists.js',
-      'after-prepare-create-macOS-builder-helper.js',
     ];
     
     for (const hook of prepareHooks) {
