@@ -84,11 +84,11 @@ def isLinux() {
     return System.getProperty('os.name').toLowerCase().contains('linux')
 }
 
-def findProjectWWWPath(appProject) {
+def findWwwDir(appProject) {
     if (appProject) {
-        def assetsDir = file("${appProject.projectDir}/src/main/assets/public")
-        if (assetsDir.exists()) {
-            return assetsDir.absolutePath
+        def wwwDir = file("${appProject.projectDir}/src/main/assets/public")
+        if (wwwDir.exists()) {
+            return wwwDir.absolutePath
         }
     }
     
@@ -107,7 +107,7 @@ def findProjectWWWPath(appProject) {
     return null
 }
 
-def getNodeDirFromConfig(projectWWW) {
+def getNodeDirFromConfig(wwwDir) {
     // Try to read Capacitor config to get nodeDir
     def configFiles = [
         file("${project.rootProject.projectDir}/capacitor.config.json"),
@@ -120,10 +120,10 @@ def getNodeDirFromConfig(projectWWW) {
             try {
                 if (configFile.name.endsWith('.json')) {
                     def config = new groovy.json.JsonSlurper().parse(configFile)
-                    def nodeDir = config?.plugins?.CapacitorNodeJS?.nodeDir ?: 'nodejs'
-                    def nodeDirPath = file("${projectWWW}/${nodeDir}")
-                    if (nodeDirPath.exists()) {
-                        return nodeDirPath.absolutePath
+                    def nodeDirName = config?.plugins?.CapacitorNodeJS?.nodeDir ?: 'nodejs'
+                    def nodeDir = file("${wwwDir}/${nodeDirName}")
+                    if (nodeDir.exists()) {
+                        return nodeDir.absolutePath
                     }
                 }
             } catch (Exception e) {
@@ -133,7 +133,7 @@ def getNodeDirFromConfig(projectWWW) {
     }
     
     // Default to nodejs
-    def defaultNodeDir = file("${projectWWW}/nodejs")
+    def defaultNodeDir = file("${wwwDir}/nodejs")
     if (defaultNodeDir.exists()) {
         return defaultNodeDir.absolutePath
     }
@@ -262,21 +262,21 @@ def buildGypDefines(archConfig) {
 ext.postBuildExtras = {
     // Build native modules - this is called by the root project
     def appProject = project.rootProject.subprojects.find { it.name == 'app' }
-    def projectWWW = findProjectWWWPath(appProject)
+    def wwwDir = findWwwDir(appProject)
     
-    if (projectWWW == null) {
+    if (wwwDir == null) {
         logger.warn('capacitor-nodejs: Could not find the www folder. Native module building will be skipped.')
         return
     }
     
-    def nodeDirPath = getNodeDirFromConfig(projectWWW)
-    if (nodeDirPath == null) {
+    def nodeDir = getNodeDirFromConfig(wwwDir)
+    if (nodeDir == null) {
         logger.warn('capacitor-nodejs: Could not find nodeDir. Native module building will be skipped.')
         return
     }
     
-    def nodeModulesPath = file("${nodeDirPath}/node_modules")
-    if (!nodeModulesPath.exists()) {
+    def nodeModulesDir = file("${nodeDir}/node_modules")
+    if (!nodeModulesDir.exists()) {
         logger.info('capacitor-nodejs: No node_modules found. Skipping native module building.')
         return
     }
@@ -338,7 +338,7 @@ ext.postBuildExtras = {
     
     // Find all modules with .gyp files
     def gypModules = []
-    fileTree(nodeModulesPath).visit { fileDetails ->
+    fileTree(nodeModulesDir).visit { fileDetails ->
         if (fileDetails.name == 'binding.gyp' && fileDetails.file.isFile()) {
             def modulePath = fileDetails.file.parentFile
             if (isGypNodeAddon(modulePath.absolutePath)) {
@@ -437,7 +437,7 @@ ext.postBuildExtras = {
                 group = 'capacitor-nodejs'
                 description = "Rebuilds native module: ${moduleName}"
                 
-                def originalProjectBin = "${nodeDirPath}/node_modules/.bin"
+                def originalProjectBin = "${nodeDir}/node_modules/.bin"
                 
                 // Call the rebuild script (similar to prebuild-for-nodejs-mobile)
                 commandLine 'node', rebuildScript.absolutePath, modulePath, targetString
