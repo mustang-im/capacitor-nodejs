@@ -160,13 +160,61 @@ function findNodeGypPath(): string | null {
 }
 
 /**
+ * Parse target string (e.g., "android-arm64") to extract platform and architecture
+ */
+function parseTarget(target: string): { platform: string; arch: string } {
+  const parts = target.split('-');
+  if (parts.length < 2) {
+    throw new Error(`Invalid target format: ${target}. Expected format: <platform>-<arch> (e.g., android-arm64)`);
+  }
+  
+  const platform = parts[0]; // android or ios
+  const arch = parts.slice(1).join('-'); // arm64, arm, x64, etc.
+  
+  return { platform, arch };
+}
+
+/**
  * Build GYP module using nodejs-mobile-gyp
  */
-function buildGypModule(modulePath: string, nodeGypPath: string, env: NodeJS.ProcessEnv): Promise<number> {
+function buildGypModule(
+  modulePath: string, 
+  nodeGypPath: string, 
+  target: string,
+  env: NodeJS.ProcessEnv
+): Promise<number> {
+  const { platform, arch } = parseTarget(target);
+  
+  // Ensure Android-specific environment variables are set
+  // Override any host defaults that might interfere
+  const androidEnv = {
+    ...env,
+    // Force Android platform
+    OS: 'android',
+    PLATFORM: 'android',
+    npm_config_platform: 'android',
+    
+    // Set architecture from target
+    npm_config_arch: arch,
+    TARGET_ARCH: arch,
+    
+    // Clear macOS-specific variables that might interfere
+    MACOSX_DEPLOYMENT_TARGET: '',
+    SDKROOT: '',
+    ARCHS: '',
+    ARCH: '',
+    
+    // Ensure nodejs-mobile-gyp is used
+    NODE_GYP: nodeGypPath,
+    npm_config_node_gyp: nodeGypPath,
+  };
+  
+  console.log(`Building for target: ${target} (platform: ${platform}, arch: ${arch})`);
+  
   return new Promise((resolve) => {
     const task = spawn('node', [nodeGypPath, 'rebuild', '--release'], {
       cwd: modulePath,
-      env: env,
+      env: androidEnv,
       stdio: 'inherit'
     });
     
@@ -218,6 +266,15 @@ async function main() {
   }
   
   console.log(`Using nodejs-mobile-gyp at: ${nodeGypPath}`);
+  console.log(`Target: ${target}`);
+  
+  // Validate target format
+  try {
+    parseTarget(target);
+  } catch (err) {
+    console.error(`Invalid target: ${err instanceof Error ? err.message : String(err)}`);
+    process.exit(1);
+  }
   
   // Patch package.json before building (sets node-gyp script to use nodejs-mobile-gyp)
   const packageJSONPatched = patchPackageJSON(resolvedModulePath);
@@ -227,15 +284,8 @@ async function main() {
   }
   
   // Build the module directly using nodejs-mobile-gyp
-  // We call it directly, so npm scripts aren't used, but patching helps if npm is invoked
-  const buildEnv = {
-    ...process.env,
-    // Ensure nodejs-mobile-gyp is used
-    NODE_GYP: nodeGypPath,
-    npm_config_node_gyp: nodeGypPath,
-  };
-  
-  const code = await buildGypModule(resolvedModulePath, nodeGypPath, buildEnv);
+  // Environment variables from Gradle are already set, but we ensure Android-specific ones
+  const code = await buildGypModule(resolvedModulePath, nodeGypPath, target, process.env);
   
   // Undo patches after building (regardless of success/failure)
   if (packageJSONPatched) {
