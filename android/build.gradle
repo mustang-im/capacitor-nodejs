@@ -258,53 +258,10 @@ def buildGypDefines(archConfig) {
     return defines
 }
 
+// Define postBuildExtras for root project to call (also called automatically in afterEvaluate below)
 ext.postBuildExtras = {
-    // This is called by the root project if needed
-    // The ABI filters are already configured in afterEvaluate below
-}
-
-// Configure abiFilters and build native modules
-afterEvaluate {
-    // Configure abiFilters from root project
+    // Build native modules - this is called by the root project
     def appProject = project.rootProject.subprojects.find { it.name == 'app' }
-    def rootAbiFilters = null
-    
-    if (appProject && appProject.hasProperty('android')) {
-        try {
-            rootAbiFilters = appProject.android.defaultConfig.ndk.abiFilters
-        } catch (Exception e) {
-            logger.warn("Could not read abiFilters from app project: ${e.message}")
-        }
-    }
-    
-    if (rootAbiFilters == null || rootAbiFilters.isEmpty()) {
-        // Fallback: try to read from rootProject properties
-        def rootAbiFiltersProperty = project.findProperty('ndkAbiFilters')
-        if (rootAbiFiltersProperty) {
-            rootAbiFilters = rootAbiFiltersProperty.split(',').collect { it.trim() }
-        }
-    }
-    
-    // Clear defaults and set the correct ABI filter
-    android.defaultConfig.ndk.abiFilters.clear()
-    
-    if (rootAbiFilters == null || rootAbiFilters.isEmpty()) {
-        // Use the default we set earlier (arm64-v8a)
-        android.defaultConfig.ndk.abiFilters = ["arm64-v8a"] as Set<String>
-        logger.info("capacitor-nodejs: Using default ABI filter: arm64-v8a")
-    } else {
-        // Check if more than one ABI is specified
-        def abiList = rootAbiFilters instanceof Collection ? rootAbiFilters : [rootAbiFilters]
-        if (abiList.size() > 1) {
-            throw new GradleException("capacitor-nodejs currently only supports building for a single ABI at a time. Found ${abiList.size()} ABIs: ${abiList.join(', ')}. Please configure your app to build for only one ABI.")
-        }
-        
-        // Set the single ABI filter
-        android.defaultConfig.ndk.abiFilters = abiList as Set<String>
-        logger.info("capacitor-nodejs: Using ABI filter from root project: ${abiList[0]}")
-    }
-    
-    // Build native modules after abiFilters are configured
     def projectWWW = findProjectWWWPath(appProject)
     
     if (projectWWW == null) {
@@ -562,5 +519,53 @@ afterEvaluate {
         }
     } else {
         logger.warn('capacitor-nodejs: nodejs-mobile-gyp not found. Native modules will not be rebuilt.')
+    }
+}
+
+// Configure abiFilters and call postBuildExtras in afterEvaluate
+afterEvaluate {
+    // Configure abiFilters from root project
+    def appProject = project.rootProject.subprojects.find { it.name == 'app' }
+    def rootAbiFilters = null
+    
+    if (appProject && appProject.hasProperty('android')) {
+        try {
+            rootAbiFilters = appProject.android.defaultConfig.ndk.abiFilters
+        } catch (Exception e) {
+            logger.warn("Could not read abiFilters from app project: ${e.message}")
+        }
+    }
+    
+    if (rootAbiFilters == null || rootAbiFilters.isEmpty()) {
+        // Fallback: try to read from rootProject properties
+        def rootAbiFiltersProperty = project.findProperty('ndkAbiFilters')
+        if (rootAbiFiltersProperty) {
+            rootAbiFilters = rootAbiFiltersProperty.split(',').collect { it.trim() }
+        }
+    }
+    
+    // Clear defaults and set the correct ABI filter
+    android.defaultConfig.ndk.abiFilters.clear()
+    
+    if (rootAbiFilters == null || rootAbiFilters.isEmpty()) {
+        // Use the default we set earlier (arm64-v8a)
+        android.defaultConfig.ndk.abiFilters = ["arm64-v8a"] as Set<String>
+        logger.info("capacitor-nodejs: Using default ABI filter: arm64-v8a")
+    } else {
+        // Check if more than one ABI is specified
+        def abiList = rootAbiFilters instanceof Collection ? rootAbiFilters : [rootAbiFilters]
+        if (abiList.size() > 1) {
+            throw new GradleException("capacitor-nodejs currently only supports building for a single ABI at a time. Found ${abiList.size()} ABIs: ${abiList.join(', ')}. Please configure your app to build for only one ABI.")
+        }
+        
+        // Set the single ABI filter
+        android.defaultConfig.ndk.abiFilters = abiList as Set<String>
+        logger.info("capacitor-nodejs: Using ABI filter from root project: ${abiList[0]}")
+    }
+    
+    // Call postBuildExtras to build native modules
+    // This ensures it runs even if the root project doesn't call it
+    if (project.hasProperty('postBuildExtras')) {
+        project.postBuildExtras()
     }
 }
