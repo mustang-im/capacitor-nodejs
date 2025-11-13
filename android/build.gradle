@@ -542,14 +542,13 @@ fi
                     libtoolWrapper.setExecutable(true)
 
                     // Create wrapper scripts that filter out macOS-specific -arch flags
+                    // We still need wrappers to filter macOS flags, but nodejs-mobile-gyp will handle libnode linking
                     def ccWrapper = new File(wrapperDir, "${archConfig.suffix}-clang")
                     def cxxWrapper = new File(wrapperDir, "${archConfig.suffix}-clang++")
-                    def linkWrapper = new File(wrapperDir, "${archConfig.suffix}-clang++-link")
 
                     // Create CC wrapper that filters -arch flags
                     ccWrapper.text = """#!/bin/bash
 # Filter out -arch flags and macOS-specific flags
-# Also filter from CFLAGS if present
 export CFLAGS=\$(echo "\$CFLAGS" | sed -E 's/(-arch[[:space:]]+[^[:space:]]+|-arch[^[:space:]]*|-fasm-blocks|-mpascal-strings|-mmacosx-version-min=[^[:space:]]*)[[:space:]]*//g')
 filtered_args=()
 skip_next=false
@@ -572,15 +571,18 @@ exec "${realCC}" "\${filtered_args[@]}"
                     ccWrapper.setExecutable(true)
 
                     // Create CXX wrapper
+                    // CRITICAL: Always add libnode.so flags when we see linker flags (-shared, -o, etc.)
                     cxxWrapper.text = """#!/bin/bash
 # Filter out -arch flags and macOS-specific flags
-# Also filter from CXXFLAGS if present
 export CXXFLAGS=\$(echo "\$CXXFLAGS" | sed -E 's/(-arch[[:space:]]+[^[:space:]]+|-arch[^[:space:]]*|-fasm-blocks|-mpascal-strings|-mmacosx-version-min=[^[:space:]]*)[[:space:]]*//g')
 filtered_args=()
 skip_next=false
+has_shared=false
+has_output=false
 for arg in "\$@"; do
     if [ "\$skip_next" = true ]; then
         skip_next=false
+        filtered_args+=("\$arg")
         continue
     fi
     if [ "\$arg" = "-arch" ]; then
@@ -590,51 +592,43 @@ for arg in "\$@"; do
     if [[ "\$arg" =~ ^-arch ]] || [ "\$arg" = "-fasm-blocks" ] || [ "\$arg" = "-mpascal-strings" ] || [[ "\$arg" =~ ^-mmacosx-version-min ]]; then
         continue
     fi
+    # Replace -bundle with -shared for Android
+    if [ "\$arg" = "-bundle" ]; then
+        filtered_args+=("-shared")
+        has_shared=true
+        continue
+    fi
+    # Track linker flags
+    if [ "\$arg" = "-shared" ]; then
+        has_shared=true
+    fi
+    if [ "\$arg" = "-o" ]; then
+        has_output=true
+    fi
     filtered_args+=("\$arg")
 done
+# ALWAYS check all args for linker indicators and add libnode flags
+# This is the most aggressive approach - add libnode if we see ANY indication of linking
+has_any_linker_indicator=false
+for arg in "\${filtered_args[@]}"; do
+    # Check for output files (.node, .so), linker flags (-shared, -o), or library flags (-L, -l)
+    if [[ "\$arg" =~ \\.(node|so)\$ ]] || [ "\$arg" = "-shared" ] || [ "\$arg" = "-o" ] || [[ "\$arg" =~ ^-L ]] || [[ "\$arg" =~ ^-l ]]; then
+        has_any_linker_indicator=true
+        break
+    fi
+done
+
+# If we detected ANY linker indicators, add libnode flags
+if [ "\$has_shared" = true ] || [ "\$has_output" = true ] || [ "\$has_any_linker_indicator" = true ]; then
+    echo "CXX wrapper: Adding libnode flags (has_shared=\$has_shared, has_output=\$has_output, has_any_linker_indicator=\$has_any_linker_indicator)" >&2
+    filtered_args+=("-L${libnodeDir.absolutePath}")
+    filtered_args+=("-lnode")
+    filtered_args+=("-Wl,-rpath,${libnodeDir.absolutePath}")
+    export LDFLAGS="\${LDFLAGS} -L${libnodeDir.absolutePath} -lnode -Wl,-rpath,${libnodeDir.absolutePath}"
+fi
 exec "${realCXX}" "\${filtered_args[@]}"
 """
                     cxxWrapper.setExecutable(true)
-
-                    // Create LINK wrapper - needs to filter additional macOS linker flags and replace with Android flags
-                    linkWrapper.text = """#!/bin/bash
-# Filter out -arch flags, macOS-specific flags, and macOS linker flags
-# Also filter from LDFLAGS if present
-export LDFLAGS=\$(echo "\$LDFLAGS" | sed -E 's/(-arch[[:space:]]+[^[:space:]]+|-arch[^[:space:]]*|-dead_strip|-bundle|-undefined[[:space:]]+dynamic_lookup|-mmacosx-version-min=[^[:space:]]*|-Wl,-dead_strip)[[:space:]]*//g')
-# Add libnode.so to LDFLAGS if not already present
-if [[ ! "\$LDFLAGS" =~ -lnode ]]; then
-    export LDFLAGS="\$LDFLAGS -L${libnodeDir.absolutePath} -lnode -Wl,-rpath,${libnodeDir.absolutePath}"
-fi
-# Replace -bundle with -shared for Android shared libraries
-filtered_args=()
-skip_next=false
-for arg in "\$@"; do
-    if [ "\$skip_next" = true ]; then
-        skip_next=false
-        continue
-    fi
-    if [ "\$arg" = "-arch" ] || [ "\$arg" = "-undefined" ]; then
-        skip_next=true
-        continue
-    fi
-    # Filter macOS flags including -Wl, prefixed linker flags
-    if [[ "\$arg" =~ ^-arch ]] || [ "\$arg" = "-fasm-blocks" ] || [ "\$arg" = "-mpascal-strings" ] || [ "\$arg" = "dynamic_lookup" ] || [ "\$arg" = "-dead_strip" ] || [ "\$arg" = "-Wl,-dead_strip" ] || [[ "\$arg" =~ ^-mmacosx-version-min ]]; then
-        continue
-    fi
-    # Replace macOS -bundle flag with Android -shared flag
-    if [ "\$arg" = "-bundle" ]; then
-        filtered_args+=("-shared")
-        continue
-    fi
-    filtered_args+=("\$arg")
-done
-# Always add libnode.so linking flags at the end
-filtered_args+=("-L${libnodeDir.absolutePath}")
-filtered_args+=("-lnode")
-filtered_args+=("-Wl,-rpath,${libnodeDir.absolutePath}")
-exec "${realCXX}" "\${filtered_args[@]}"
-"""
-                    linkWrapper.setExecutable(true)
                 }
 
                 // Override libtool to use Android ar instead of macOS libtool
@@ -643,39 +637,14 @@ exec "${realCXX}" "\${filtered_args[@]}"
                 def originalPath = System.getenv('PATH') ?: ''
                 environment('PATH', "${wrapperDir.absolutePath}${File.pathSeparator}${originalPath}")
 
-                // Use wrapper scripts
+                // Use wrapper scripts for CC/CXX to filter macOS flags
+                // LINK uses CXX directly (like reference implementation)
                 environment('CC', "${wrapperDir.absolutePath}/${archConfig.suffix}-clang")
                 environment('CXX', "${wrapperDir.absolutePath}/${archConfig.suffix}-clang++")
-                environment('LINK', "${wrapperDir.absolutePath}/${archConfig.suffix}-clang++-link")
-                environment('GYP_DEFINES', npmGypDefines)
+                environment('LINK', "${wrapperDir.absolutePath}/${archConfig.suffix}-clang++")  // Use CXX wrapper for linking
 
-                // Remove macOS-specific -arch flags that conflict with Android builds
-                // The .gyp/include.gypi file may add macOS flags, so we override them
-                def existingCFLAGS = System.getenv('CFLAGS') ?: ''
-                def existingCXXFLAGS = System.getenv('CXXFLAGS') ?: ''
-                // Filter out -arch flags and macOS-specific flags
-                def filteredCFLAGS = existingCFLAGS.split(' ').findAll {
-                    !it.startsWith('-arch') &&
-                    !it.equals('-fasm-blocks') &&
-                    !it.equals('-mpascal-strings') &&
-                    !it.startsWith('-mmacosx-version-min')
-                }.join(' ')
-                def filteredCXXFLAGS = existingCXXFLAGS.split(' ').findAll {
-                    !it.startsWith('-arch') &&
-                    !it.equals('-fasm-blocks') &&
-                    !it.equals('-mpascal-strings') &&
-                    !it.startsWith('-mmacosx-version-min')
-                }.join(' ')
-                // Add -fPIC for shared library compilation (required for Android)
-                if (!filteredCFLAGS.contains('-fPIC')) {
-                    filteredCFLAGS = (filteredCFLAGS + ' -fPIC').trim()
-                }
-                if (!filteredCXXFLAGS.contains('-fPIC')) {
-                    filteredCXXFLAGS = (filteredCXXFLAGS + ' -fPIC').trim()
-                }
-                environment('CFLAGS', filteredCFLAGS)
-                environment('CXXFLAGS', filteredCXXFLAGS)
-                // Also set LDFLAGS to avoid macOS-specific flags and link against libnode.so
+                // Filter out macOS-specific flags from LDFLAGS and add libnode.so
+                // Explicitly add libnode.so to LDFLAGS since nodejs-mobile-gyp might not always do this correctly
                 def existingLDFLAGS = System.getenv('LDFLAGS') ?: ''
                 def filteredLDFLAGS = existingLDFLAGS.split(' ').findAll {
                     !it.startsWith('-arch') &&
@@ -684,21 +653,33 @@ exec "${realCXX}" "\${filtered_args[@]}"
                     !it.equals('-undefined') &&
                     !it.startsWith('-mmacosx-version-min')
                 }.join(' ')
-                // Add libnode.so to linker flags so native modules link against it
-                if (libnodeDir.exists()) {
-                    filteredLDFLAGS = (filteredLDFLAGS + " -L${libnodeDir.absolutePath} -lnode -Wl,-rpath,${libnodeDir.absolutePath}").trim()
-                    logger.info("capacitor-nodejs: Adding libnode.so to LDFLAGS: -L${libnodeDir.absolutePath} -lnode -Wl,-rpath,${libnodeDir.absolutePath}")
-                } else {
-                    logger.warn("capacitor-nodejs: libnode directory not found at ${libnodeDir.absolutePath}, native modules may not link correctly")
+                // Explicitly add libnode.so to LDFLAGS (nodejs-mobile-gyp might not always do this correctly)
+                if (libnodeDir && libnodeDir.exists()) {
+                    def libnodeLdflags = "-L${libnodeDir.absolutePath} -lnode -Wl,-rpath,${libnodeDir.absolutePath}"
+                    filteredLDFLAGS = (filteredLDFLAGS + " ${libnodeLdflags}").trim()
+                    logger.info("capacitor-nodejs: Adding libnode to LDFLAGS: ${libnodeLdflags}")
                 }
-                environment('LDFLAGS', filteredLDFLAGS)
+                if (filteredLDFLAGS) {
+                    environment('LDFLAGS', filteredLDFLAGS)
+                }
 
-                // Also set npm_config variables that nodejs-mobile-gyp uses for linking
-                environment('npm_config_node_libfile', libnodePath)
-                environment('npm_config_node_shared', 'true')
+                // Set npm_config variables that nodejs-mobile-gyp uses for linking
+                // Following prebuild-for-nodejs-mobile reference: https://github.com/nodejs-mobile/prebuild-for-nodejs-mobile
+                environment('npm_config_node_engine', 'v8')
+                environment('npm_config_nodedir', "${project.projectDir}/libnode/")
 
-                // Set GYP variables for linking (nodejs-mobile-gyp may use these)
-                environment('GYP_DEFINES', "${npmGypDefines} node_libfile=${libnodePath} node_shared=true")
+                def npmGypPath = findNodeGypPath()
+                if (npmGypPath != null) {
+                    environment('npm_config_node_gyp', npmGypPath)
+                    // Also set as NODE_GYP for compatibility
+                    environment('NODE_GYP', npmGypPath)
+                }
+
+                // Set node_libfile and node_shared in GYP_DEFINES (critical for linking)
+                // These tell nodejs-mobile-gyp where to find libnode.so
+                // buildGypDefines already includes these, but we ensure they're set
+                environment('GYP_DEFINES', npmGypDefines)
+
                 // Override any GYP-injected macOS flags by setting empty values
                 environment('MACOSX_DEPLOYMENT_TARGET', '')
                 environment('SDKROOT', '')
