@@ -183,11 +183,13 @@ def findNodeGypPath() {
     }
     
     // Search paths in order of preference:
-    // 1. Config directory's node_modules
-    // 2. Root project's node_modules
-    // 3. Plugin's node_modules
+    // 1. Plugin's node_modules (this package's dependency)
+    // 2. Config directory's node_modules
+    // 3. Root project's node_modules
     // 4. Parent directories (for monorepos)
+    def pluginRoot = project.projectDir.parentFile
     def possiblePaths = [
+        file("${pluginRoot}/node_modules/nodejs-mobile-gyp/bin/node-gyp.js"),
         file("${configRoot}/node_modules/nodejs-mobile-gyp/bin/node-gyp.js"),
         file("${project.rootProject.projectDir}/node_modules/nodejs-mobile-gyp/bin/node-gyp.js"),
         file("${project.projectDir}/node_modules/nodejs-mobile-gyp/bin/node-gyp.js"),

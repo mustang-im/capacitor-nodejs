@@ -55,6 +55,9 @@
     "capacitor:copy:after": "node scripts/dist/after-copy.js",
     "prepublishOnly": "npm run build"
   },
+  "dependencies": {
+    "nodejs-mobile-gyp": "^0.4.0"
+  },
   "devDependencies": {
     "@capacitor/android": "^7.0.0",
     "@capacitor/cli": "^7.0.0",

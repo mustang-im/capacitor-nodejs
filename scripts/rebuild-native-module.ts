@@ -19,8 +19,12 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, copyFileSync, unlinkSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
 import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 interface PackageJSON {
   scripts?: {
@@ -59,40 +63,43 @@ function isGypNodeAddon(modulePath: string): boolean {
 /**
  * Patch package.json to use nodejs-mobile-gyp
  * Similar to prebuild-for-nodejs-mobile's approach
+ * Sets the 'node-gyp' script to point to nodejs-mobile-gyp
  */
-function patchPackageJSON(modulePath: string, nodeGypPath: string): boolean {
+function patchPackageJSON(modulePath: string): boolean {
   const pkgPath = join(modulePath, 'package.json');
   if (!existsSync(pkgPath)) return false;
   
   const pkgJSON = getPackageJSON(modulePath);
   if (!pkgJSON) return false;
   
-  // Check if already patched
-  if (pkgJSON.scripts?.install?.includes('nodejs-mobile-gyp')) {
-    return false;
-  }
+  const originalPkgJSON = JSON.stringify(pkgJSON, null, 2);
   
-  // Backup original
-  const backupPath = pkgPath + '.bak';
-  if (!existsSync(backupPath)) {
-    copyFileSync(pkgPath, backupPath);
-  }
-  
-  // Patch scripts to use nodejs-mobile-gyp
+  // Ensure scripts exist
   if (!pkgJSON.scripts) {
     pkgJSON.scripts = {};
   }
   
-  // Replace node-gyp with nodejs-mobile-gyp in install/rebuild scripts
-  if (pkgJSON.scripts.install) {
-    pkgJSON.scripts.install = pkgJSON.scripts.install.replace(/node-gyp/g, nodeGypPath);
-  }
-  if (pkgJSON.scripts.rebuild) {
-    pkgJSON.scripts.rebuild = pkgJSON.scripts.rebuild.replace(/node-gyp/g, nodeGypPath);
+  // Set 'node-gyp' script to use nodejs-mobile-gyp (npm will resolve it from PATH or node_modules)
+  // This allows npm scripts that reference node-gyp to use nodejs-mobile-gyp instead
+  if (!pkgJSON.scripts['node-gyp'] || !pkgJSON.scripts['node-gyp'].includes('nodejs-mobile-gyp')) {
+    pkgJSON.scripts['node-gyp'] = 'nodejs-mobile-gyp';
   }
   
-  writeFileSync(pkgPath, JSON.stringify(pkgJSON, null, 2) + '\n', 'utf8');
-  return true;
+  const newPkgJSON = JSON.stringify(pkgJSON, null, 2);
+  
+  // Only patch if changed
+  if (newPkgJSON !== originalPkgJSON) {
+    // Backup original
+    const backupPath = pkgPath + '.bak';
+    if (!existsSync(backupPath)) {
+      copyFileSync(pkgPath, backupPath);
+    }
+    
+    writeFileSync(pkgPath, newPkgJSON + '\n', 'utf8');
+    return true;
+  }
+  
+  return false;
 }
 
 /**
@@ -107,6 +114,49 @@ function undoPackageJSONPatch(modulePath: string): void {
     copyFileSync(backupPath, pkgPath);
     unlinkSync(backupPath);
   }
+}
+
+/**
+ * Find nodejs-mobile-gyp path
+ * Looks in:
+ * 1. Plugin's node_modules (if this is a development build)
+ * 2. Environment variable NODE_GYP (set by Gradle)
+ * 3. Current working directory's node_modules
+ * 4. Parent directories (for monorepos)
+ */
+function findNodeGypPath(): string | null {
+  // Try environment variable first (set by Gradle)
+  if (process.env.NODE_GYP && existsSync(process.env.NODE_GYP)) {
+    return process.env.NODE_GYP;
+  }
+
+  // Try plugin's node_modules (from scripts/dist/rebuild-native-module.js)
+  // Go up from scripts/dist/ to project root
+  const pluginRoot = resolve(__dirname, '../..');
+  const pluginNodeGyp = join(pluginRoot, 'node_modules', 'nodejs-mobile-gyp', 'bin', 'node-gyp.js');
+  if (existsSync(pluginNodeGyp)) {
+    return pluginNodeGyp;
+  }
+
+  // Try current working directory's node_modules
+  const cwdNodeGyp = join(process.cwd(), 'node_modules', 'nodejs-mobile-gyp', 'bin', 'node-gyp.js');
+  if (existsSync(cwdNodeGyp)) {
+    return cwdNodeGyp;
+  }
+
+  // Try parent directories (for monorepos)
+  let currentDir = process.cwd();
+  for (let i = 0; i < 5; i++) {
+    const parentNodeGyp = join(currentDir, 'node_modules', 'nodejs-mobile-gyp', 'bin', 'node-gyp.js');
+    if (existsSync(parentNodeGyp)) {
+      return parentNodeGyp;
+    }
+    const parentDir = resolve(currentDir, '..');
+    if (parentDir === currentDir) break; // Reached filesystem root
+    currentDir = parentDir;
+  }
+
+  return null;
 }
 
 /**
@@ -156,20 +206,28 @@ async function main() {
     process.exit(1);
   }
   
-  const nodeGypPath = process.env.NODE_GYP;
-  if (!nodeGypPath || !existsSync(nodeGypPath)) {
-    console.error('Error: NODE_GYP environment variable not set or invalid');
+  // Find nodejs-mobile-gyp path
+  let nodeGypPath = findNodeGypPath();
+  if (!nodeGypPath) {
+    console.error('Error: nodejs-mobile-gyp not found. Please install it: npm install --save-dev nodejs-mobile-gyp');
+    console.error('Searched in:');
+    console.error(`  - Plugin node_modules: ${join(resolve(__dirname, '../..'), 'node_modules', 'nodejs-mobile-gyp')}`);
+    console.error(`  - Current directory: ${join(process.cwd(), 'node_modules', 'nodejs-mobile-gyp')}`);
+    console.error(`  - NODE_GYP env var: ${process.env.NODE_GYP || '(not set)'}`);
     process.exit(1);
   }
   
-  // Patch package.json before building
-  const packageJSONPatched = patchPackageJSON(resolvedModulePath, nodeGypPath);
+  console.log(`Using nodejs-mobile-gyp at: ${nodeGypPath}`);
+  
+  // Patch package.json before building (sets node-gyp script to use nodejs-mobile-gyp)
+  const packageJSONPatched = patchPackageJSON(resolvedModulePath);
   
   if (packageJSONPatched) {
-    console.log('Patched package.json');
+    console.log('Patched package.json to use nodejs-mobile-gyp');
   }
   
-  // Build the module
+  // Build the module directly using nodejs-mobile-gyp
+  // We call it directly, so npm scripts aren't used, but patching helps if npm is invoked
   const buildEnv = {
     ...process.env,
     // Ensure nodejs-mobile-gyp is used
