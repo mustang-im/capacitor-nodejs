@@ -1,37 +1,37 @@
 /**
  * Script to download or copy Node.js Mobile library based on Capacitor config
- * 
+ *
  * Usage:
  *   node scripts/fetch-libnode.js [--platform android|ios|both] [--force]
- * 
+ *
  * Options:
- *   --platform <platform>  Platform to setup (android, ios, or both). 
+ *   --platform <platform>  Platform to setup (android, ios, or both).
  *                          Default: reads from CAPACITOR_PLATFORM env var, or 'both' if not set
  *   --force, -f            Force redownload even if libnode already exists
- * 
+ *
  * Note: When run as a Capacitor hook (capacitor:copy:after), the platform is automatically
  *       detected from the CAPACITOR_PLATFORM environment variable.
- * 
+ *
  * Configuration:
  *   The script reads from your Capacitor config file (capacitor.config.ts/js/json):
- *   
+ *
  *   plugins: {
  *     CapacitorNodeJS: {
  *       androidLibNode: "https://example.com/android-libnode.zip" | "/path/to/local/libnode",
  *       iosLibNode: "https://example.com/ios-libnode.zip" | "/path/to/local/libnode"
  *     }
  *   }
- * 
+ *
  * Examples:
  *   # Download for both platforms
  *   node scripts/fetch-libnode.js
- * 
+ *
  *   # Download only for Android
  *   node scripts/fetch-libnode.js --platform android
- * 
+ *
  *   # Force redownload
  *   node scripts/fetch-libnode.js --force
- * 
+ *
  *   # Force redownload for iOS only
  *   node scripts/fetch-libnode.js --platform ios --force
  */
@@ -55,55 +55,77 @@ interface CapacitorConfig {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const projectRoot = resolve(__dirname, '..');
+
+// Get the project root from the current working directory (where Capacitor CLI runs)
+// This ensures we find the config file relative to where the command is executed
+const projectRoot = process.cwd();
 
 // Parse command line arguments and environment variables
 const args = process.argv.slice(2);
 // Get platform from CAPACITOR_PLATFORM environment variable (set by Capacitor) or command line
-const platformArg = process.env.CAPACITOR_PLATFORM || 
-                    args.find(arg => arg.startsWith('--platform='))?.split('=')[1] || 
+const platformArg = process.env.CAPACITOR_PLATFORM ||
+                    args.find(arg => arg.startsWith('--platform='))?.split('=')[1] ||
                     args[args.indexOf('--platform') + 1];
 const force = args.includes('--force') || args.includes('-f');
 
 /**
  * Find and load Capacitor config file
+ * Looks for config file relative to the current working directory (where Capacitor CLI runs)
+ * Also searches from the script's location to handle cases where hooks run from different directories
  */
 async function findCapacitorConfig(): Promise<CapacitorConfig> {
-  const configPatterns = [
-    join(projectRoot, 'capacitor.config.ts'),
-    join(projectRoot, 'capacitor.config.js'),
-    join(projectRoot, 'capacitor.config.json'),
+  // Start from current working directory (where Capacitor CLI executes)
+  const searchRoot = process.cwd();
+
+  // Also try to find config relative to where this script is located
+  // This helps when the hook runs from a different working directory
+  const scriptDir = dirname(__filename);
+  const possibleRoots = [
+    searchRoot,
+    resolve(scriptDir, '../..'), // From scripts/dist/ to project root
+    resolve(scriptDir, '../../..'), // In case we're deeper
   ];
 
-  // Also check parent directories (for monorepos)
-  const parentPatterns = [
-    join(projectRoot, '..', 'capacitor.config.ts'),
-    join(projectRoot, '..', 'capacitor.config.js'),
-    join(projectRoot, '..', 'capacitor.config.json'),
-  ];
+  // Remove duplicates and filter to existing directories
+  const uniqueRoots = Array.from(new Set(possibleRoots));
 
-  for (const configPath of [...configPatterns, ...parentPatterns]) {
-    if (existsSync(configPath)) {
-      try {
-        if (configPath.endsWith('.json')) {
-          const content = readFileSync(configPath, 'utf8');
-          return JSON.parse(content) as CapacitorConfig;
-        } else {
-          // For TS/JS files, use dynamic import
-          // Note: TypeScript files (.ts) need to be compiled first or use ts-node/tsx
-          const module = await import(configPath);
-          return (module.default || module) as CapacitorConfig;
+  for (const root of uniqueRoots) {
+    const configPatterns = [
+      join(root, 'capacitor.config.ts'),
+      join(root, 'capacitor.config.js'),
+      join(root, 'capacitor.config.json'),
+    ];
+
+    // Also check parent directories (for monorepos)
+    const parentPatterns = [
+      join(root, '..', 'capacitor.config.ts'),
+      join(root, '..', 'capacitor.config.js'),
+      join(root, '..', 'capacitor.config.json'),
+    ];
+
+    for (const configPath of [...configPatterns, ...parentPatterns]) {
+      if (existsSync(configPath)) {
+        try {
+          if (configPath.endsWith('.json')) {
+            const content = readFileSync(configPath, 'utf8');
+            return JSON.parse(content) as CapacitorConfig;
+          } else {
+            // For TS/JS files, use dynamic import
+            // Note: TypeScript files (.ts) need to be compiled first or use ts-node/tsx
+            const module = await import(pathToFileURL(configPath).href);
+            return (module.default || module) as CapacitorConfig;
+          }
+        } catch (error) {
+          const err = error as Error;
+          console.warn(`Failed to load config from ${configPath}:`, err.message);
         }
-      } catch (error) {
-        const err = error as Error;
-        console.warn(`Failed to load config from ${configPath}:`, err.message);
       }
     }
   }
 
-  // Try using glob to find config files in parent directories
+  // Try using glob to find config files in current and parent directories
   try {
-    const searchDirs = [projectRoot, resolve(projectRoot, '..')];
+    const searchDirs = [...uniqueRoots, ...uniqueRoots.map(r => resolve(r, '..'))];
     for (const searchDir of searchDirs) {
       try {
         const configFiles = await glob('capacitor.config.{ts,js,json}', {
@@ -147,7 +169,7 @@ async function findCapacitorConfig(): Promise<CapacitorConfig> {
 function downloadFile(url: string, destPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const protocol = url.startsWith('https:') ? https : http;
-    
+
     protocol.get(url, (response) => {
       if (response.statusCode === 301 || response.statusCode === 302) {
         // Handle redirects
@@ -202,7 +224,7 @@ function copyDirectory(src: string, dest: string): void {
   if (!existsSync(src)) {
     throw new Error(`Source directory does not exist: ${src}`);
   }
-  
+
   mkdirSync(dest, { recursive: true });
   cpSync(src, dest, { recursive: true, force: true });
 }
@@ -211,8 +233,9 @@ function copyDirectory(src: string, dest: string): void {
  * Setup libnode for Android
  */
 async function setupAndroidLibNode(source: string, forceDownload: boolean): Promise<void> {
-  const libnodeDir = join(projectRoot, 'android', 'libnode');
-  
+  // Use current working directory (where Capacitor CLI runs) as base
+  const libnodeDir = join(process.cwd(), 'android', 'libnode');
+
   if (existsSync(libnodeDir) && !forceDownload) {
     console.log('Android libnode already exists. Use --force to redownload.');
     return;
@@ -238,7 +261,7 @@ async function setupAndroidLibNode(source: string, forceDownload: boolean): Prom
     console.log('Android libnode downloaded successfully.');
   } else {
     // Copy from local path
-    const sourcePath = isAbsolute(source) ? source : resolve(projectRoot, source);
+    const sourcePath = isAbsolute(source) ? source : resolve(process.cwd(), source);
     console.log(`Copying libnode from: ${sourcePath}`);
     copyDirectory(sourcePath, libnodeDir);
     console.log('Android libnode copied successfully.');
@@ -249,8 +272,9 @@ async function setupAndroidLibNode(source: string, forceDownload: boolean): Prom
  * Setup libnode for iOS
  */
 async function setupIOSLibNode(source: string, forceDownload: boolean): Promise<void> {
-  const libnodeDir = join(projectRoot, 'ios', 'libnode');
-  
+  // Use current working directory (where Capacitor CLI runs) as base
+  const libnodeDir = join(process.cwd(), 'ios', 'libnode');
+
   if (existsSync(libnodeDir) && !forceDownload) {
     console.log('iOS libnode already exists. Use --force to redownload.');
     return;
@@ -276,7 +300,7 @@ async function setupIOSLibNode(source: string, forceDownload: boolean): Promise<
     console.log('iOS libnode downloaded successfully.');
   } else {
     // Copy from local path
-    const sourcePath = isAbsolute(source) ? source : resolve(projectRoot, source);
+    const sourcePath = isAbsolute(source) ? source : resolve(process.cwd(), source);
     console.log(`Copying libnode from: ${sourcePath}`);
     copyDirectory(sourcePath, libnodeDir);
     console.log('iOS libnode copied successfully.');
