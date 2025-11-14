@@ -14,4 +14,12 @@ Pod::Spec.new do |s|
   s.ios.deployment_target = '12.0'
   s.dependency 'Capacitor'
   s.swift_version = '5.1'
+
+  # Link against NodeMobile framework
+  # The framework is at ios/libnode/NodeMobile.xcframework (relative to podspec location)
+  s.vendored_frameworks = 'ios/libnode/NodeMobile.xcframework'
+  s.pod_target_xcconfig = {
+    'FRAMEWORK_SEARCH_PATHS' => '$(inherited) "$(PODS_TARGET_SRCROOT)/ios/libnode"',
+    'OTHER_LDFLAGS' => '$(inherited) -framework "NodeMobile"'
+  }
 end

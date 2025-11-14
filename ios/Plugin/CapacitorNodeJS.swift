@@ -21,7 +21,11 @@ class CapacitorNodeJS {
 
     init(eventNotifier: PluginEventNotifier) {
         self.eventNotifier = eventNotifier
-        self.nodeProcess = NodeProcess(receiveCallback: ReceiveCallbackImpl(parent: self))
+        // Initialize nodeProcess after all stored properties are set
+        let callback = ReceiveCallbackImpl()
+        self.nodeProcess = NodeProcess(receiveCallback: callback)
+        // Set parent reference after initialization
+        callback.parent = self
 
         // Get app version info
         if let infoDictionary = Bundle.main.infoDictionary {
@@ -224,8 +228,14 @@ class CapacitorNodeJS {
     func sendMessage(channelName: String, eventName: String, args: JSArray) {
         guard !eventName.isEmpty else { return }
 
-        // Create event message payload
-        let eventMessage = args.toString() ?? "[]"
+        // Create event message payload - serialize JSArray to JSON string
+        let eventMessage: String
+        if let jsonData = try? JSONSerialization.data(withJSONObject: args),
+           let jsonString = String(data: jsonData, encoding: .utf8) {
+            eventMessage = jsonString
+        } else {
+            eventMessage = "[]"
+        }
 
         let payload: [String: Any] = [
             "eventName": eventName,
@@ -246,8 +256,8 @@ class CapacitorNodeJS {
     private class ReceiveCallbackImpl: NodeProcess.ReceiveCallback {
         weak var parent: CapacitorNodeJS?
 
-        init(parent: CapacitorNodeJS) {
-            self.parent = parent
+        init() {
+            // Parent will be set after CapacitorNodeJS initialization
         }
 
         func receive(channelName: String, message: String) {
@@ -264,14 +274,44 @@ class CapacitorNodeJS {
             return
         }
 
-        let args: JSArray = {
-            guard !eventMessage.isEmpty,
-                  let eventData = eventMessage.data(using: .utf8),
-                  let eventArray = try? JSONSerialization.jsonObject(with: eventData) as? [Any] else {
-                return JSArray()
+        var args = JSArray()
+        if !eventMessage.isEmpty,
+           let eventData = eventMessage.data(using: .utf8),
+           let eventArray = try? JSONSerialization.jsonObject(with: eventData) as? [Any] {
+            for item in eventArray {
+                if let stringValue = item as? String {
+                    args.append(stringValue)
+                } else if let numberValue = item as? NSNumber {
+                    args.append(numberValue)
+                } else if let boolValue = item as? Bool {
+                    args.append(boolValue)
+                } else if let dictValue = item as? [String: Any] {
+                    var jsObject = JSObject()
+                    for (key, value) in dictValue {
+                        if let stringVal = value as? String {
+                            jsObject[key] = stringVal
+                        } else if let numVal = value as? NSNumber {
+                            jsObject[key] = numVal
+                        } else if let boolVal = value as? Bool {
+                            jsObject[key] = boolVal
+                        }
+                    }
+                    args.append(jsObject)
+                } else if let arrayValue = item as? [Any] {
+                    var nestedArray = JSArray()
+                    for nestedItem in arrayValue {
+                        if let stringVal = nestedItem as? String {
+                            nestedArray.append(stringVal)
+                        } else if let numVal = nestedItem as? NSNumber {
+                            nestedArray.append(numVal)
+                        } else if let boolVal = nestedItem as? Bool {
+                            nestedArray.append(boolVal)
+                        }
+                    }
+                    args.append(nestedArray)
+                }
             }
-            return JSArray(eventArray)
-        }()
+        }
 
         if channelName == CapacitorNodeJS.CHANNEL_NAME_APP && eventName == "ready" {
             engineStatus.setReady()
@@ -300,7 +340,7 @@ class CapacitorNodeJS {
         }
 
         func reject(_ message: String, _ error: Error) {
-            call?.reject(message, error)
+            call?.reject(message, error.localizedDescription)
         }
     }
 }

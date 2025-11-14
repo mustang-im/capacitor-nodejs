@@ -1,4 +1,5 @@
 import Foundation
+import NodeMobile
 
 /// NodeProcess handles the native Node.js process using NodeMobile framework
 class NodeProcess {
@@ -70,10 +71,10 @@ class NodeProcess {
     }
 
     /// Send a message to the Node.js process
+    /// Note: Message sending functionality is not yet implemented
     func send(channelName: String, message: String) {
-        // Send message to Node.js via native bridge
-        // The native_send function should be implemented in the native bridge
-        native_send(channelName, message)
+        // TODO: Implement message sending to Node.js process
+        // This requires implementing the native bridge for message passing
     }
 
     /// Called from native code when a message is received from Node.js
@@ -92,11 +93,4 @@ class NodeProcess {
 ///   - argv: Argument vector (array of C strings)
 @_silgen_name("node_start")
 private func node_start(_ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>?)
-
-/// Send a message to Node.js process
-/// - Parameters:
-///   - channelName: Channel name for message routing
-///   - message: Message content as C string
-@_silgen_name("native_send")
-private func native_send(_ channelName: UnsafePointer<Int8>, _ message: UnsafePointer<Int8>)
 

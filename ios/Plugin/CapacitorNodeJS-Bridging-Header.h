@@ -21,7 +21,6 @@
 // int node_start(int argc, char *argv[]);
 
 // Native bridge functions for message passing
-// void native_send(const char* channelName, const char* message);
 // void native_receive(const char* channelName, const char* message);
 
 #endif /* CapacitorNodeJS_Bridging_Header_h */

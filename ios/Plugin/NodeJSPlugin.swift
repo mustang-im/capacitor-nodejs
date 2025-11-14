@@ -14,21 +14,6 @@ public class NodeJSPlugin: CAPPlugin {
     private lazy var eventNotifier: PluginEventNotifier = PluginEventNotifierImpl(plugin: self)
     private var implementation: CapacitorNodeJS?
 
-    public override func load() {
-        implementation = CapacitorNodeJS(eventNotifier: eventNotifier)
-
-        let pluginSettings = readPluginSettings()
-        if pluginSettings.startMode == "auto" {
-            implementation?.startEngine(
-                call: nil,
-                projectDir: pluginSettings.nodeDir,
-                mainFile: nil,
-                args: [],
-                env: [:]
-            )
-        }
-    }
-
     /// Plugin settings from Capacitor config
     private struct PluginSettings {
         let nodeDir: String
@@ -43,8 +28,38 @@ public class NodeJSPlugin: CAPPlugin {
         )
     }
 
-    public override func handleOnResume() {
-        super.handleOnResume()
+    public override func load() {
+        super.load()
+        implementation = CapacitorNodeJS(eventNotifier: eventNotifier)
+
+        let pluginSettings = readPluginSettings()
+        if pluginSettings.startMode == "auto" {
+            implementation?.startEngine(
+                call: nil,
+                projectDir: pluginSettings.nodeDir,
+                mainFile: nil,
+                args: [],
+                env: [:]
+            )
+        }
+
+        // Listen to app lifecycle notifications
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidEnterBackground),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil
+        )
+    }
+
+    @objc private func applicationWillEnterForeground() {
         let args = JSArray()
         implementation?.sendMessage(
             channelName: CapacitorNodeJS.CHANNEL_NAME_APP,
@@ -53,14 +68,17 @@ public class NodeJSPlugin: CAPPlugin {
         )
     }
 
-    public override func handleOnPause() {
-        super.handleOnPause()
+    @objc private func applicationDidEnterBackground() {
         let args = JSArray()
         implementation?.sendMessage(
             channelName: CapacitorNodeJS.CHANNEL_NAME_APP,
             eventName: "pause",
             args: args
         )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
     }
 
     // MARK: - Plugin Methods
@@ -80,16 +98,16 @@ public class NodeJSPlugin: CAPPlugin {
 
         let argsArray: [String] = {
             guard let args = nodeArgs else { return [] }
-            return (0..<args.length()).compactMap { args.getString($0) }
+            return args.compactMap { $0 as? String }
         }()
 
         let envMap: [String: String] = {
             guard let env = nodeEnv else { return [:] }
             var result: [String: String] = [:]
-            for key in env.keys() {
+            for (key, value) in env {
                 guard let keyString = key as? String,
-                      let value = env.getString(keyString) else { continue }
-                result[keyString] = value
+                      let valueString = value as? String else { continue }
+                result[keyString] = valueString
             }
             return result
         }()
@@ -124,8 +142,8 @@ public class NodeJSPlugin: CAPPlugin {
             guard let plugin = plugin else { return }
 
             // Notify Capacitor listeners
-            let args = JSObject()
-            args.set("args", payloadArray)
+            var args = JSObject()
+            args["args"] = payloadArray
             plugin.notifyListeners(eventName, data: args)
         }
     }

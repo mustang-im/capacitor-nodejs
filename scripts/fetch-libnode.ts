@@ -41,12 +41,15 @@ import { join, resolve, isAbsolute, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import https from 'node:https';
 import http from 'node:http';
-import * as AdmZipModule from 'adm-zip';
-const AdmZip = AdmZipModule.default || AdmZipModule;
+import AdmZip from 'adm-zip';
 import { findCapacitorConfig, type CapacitorConfig } from './config-utils.js';
 
-// Get the project root from the current working directory (where Capacitor CLI runs)
-const projectRoot = process.cwd();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Get plugin root directory
+// Script is at scripts/dist/fetch-libnode.js, so go up two levels to get plugin root
+const pluginRoot = dirname(dirname(__dirname));
 
 // Parse command line arguments and environment variables
 const args = process.argv.slice(2);
@@ -100,7 +103,7 @@ function downloadFile(url: string, destPath: string): Promise<void> {
 /**
  * Extract zip file
  */
-function extractZip(zipPath: string, extractTo: string): void {
+async function extractZip(zipPath: string, extractTo: string): Promise<void> {
   try {
     const zip = new AdmZip(zipPath);
     zip.extractAllTo(extractTo, true);
@@ -113,13 +116,15 @@ function extractZip(zipPath: string, extractTo: string): void {
 /**
  * Copy directory recursively
  */
-function copyDirectory(src: string, dest: string): void {
+async function copyDirectory(src: string, dest: string): Promise<void> {
+  const { mkdir, cp } = await import('node:fs/promises');
+
   if (!existsSync(src)) {
     throw new Error(`Source directory does not exist: ${src}`);
   }
 
-  mkdirSync(dest, { recursive: true });
-  cpSync(src, dest, { recursive: true, force: true });
+  await mkdir(dest, { recursive: true });
+  await cp(src, dest, { recursive: true, force: true });
 }
 
 /**
@@ -143,30 +148,31 @@ async function setupAndroidLibNode(source: string, forceDownload: boolean): Prom
 
   mkdirSync(libnodeDir, { recursive: true });
 
-  if (source.startsWith('http://') || source.startsWith('https://')) {
-    // Download from URL
-    const tempZip = join(libnodeDir, 'libnode.zip');
-    console.log('Downloading libnode...');
-    await downloadFile(source, tempZip);
-    console.log('Extracting libnode...');
-    extractZip(tempZip, libnodeDir);
-    rmSync(tempZip, { force: true });
-    console.log('Android libnode downloaded successfully.');
-  } else {
-    // Copy from local path
-    const sourcePath = isAbsolute(source) ? source : resolve(process.cwd(), source);
-    console.log(`Copying libnode from: ${sourcePath}`);
-    copyDirectory(sourcePath, libnodeDir);
-    console.log('Android libnode copied successfully.');
-  }
+    if (source.startsWith('http://') || source.startsWith('https://')) {
+      // Download from URL
+      const tempZip = join(libnodeDir, 'libnode.zip');
+      console.log('Downloading libnode...');
+      await downloadFile(source, tempZip);
+      console.log('Extracting libnode...');
+      await extractZip(tempZip, libnodeDir);
+      rmSync(tempZip, { force: true });
+      console.log('Android libnode downloaded successfully.');
+    } else {
+      // Copy from local path
+      const sourcePath = isAbsolute(source) ? source : resolve(process.cwd(), source);
+      console.log(`Copying libnode from: ${sourcePath}`);
+      await copyDirectory(sourcePath, libnodeDir);
+      console.log('Android libnode copied successfully.');
+    }
 }
 
 /**
  * Setup libnode for iOS
+ * Downloads to plugin's ios/libnode/ directory (like nodejs-mobile-cordova)
  */
 async function setupIOSLibNode(source: string, forceDownload: boolean): Promise<void> {
-  // Use current working directory (where Capacitor CLI runs) as base
-  const libnodeDir = join(process.cwd(), 'ios', 'libnode');
+  // Download to plugin's ios/libnode/ directory
+  const libnodeDir = join(pluginRoot, 'ios', 'libnode');
 
   if (existsSync(libnodeDir) && !forceDownload) {
     console.log('iOS libnode already exists. Use --force to redownload.');
@@ -188,14 +194,14 @@ async function setupIOSLibNode(source: string, forceDownload: boolean): Promise<
     console.log('Downloading libnode...');
     await downloadFile(source, tempZip);
     console.log('Extracting libnode...');
-    extractZip(tempZip, libnodeDir);
+    await extractZip(tempZip, libnodeDir);
     rmSync(tempZip, { force: true });
     console.log('iOS libnode downloaded successfully.');
   } else {
     // Copy from local path
     const sourcePath = isAbsolute(source) ? source : resolve(process.cwd(), source);
     console.log(`Copying libnode from: ${sourcePath}`);
-    copyDirectory(sourcePath, libnodeDir);
+    await copyDirectory(sourcePath, libnodeDir);
     console.log('iOS libnode copied successfully.');
   }
 }
@@ -211,10 +217,18 @@ async function main(): Promise<void> {
     const platform = platformArg?.toLowerCase() || 'both';
     const forceDownload = force;
 
+    if (platform !== 'android' && platform !== 'ios' && platform !== 'both') {
+      console.error(`Invalid platform: ${platform}. Use 'android', 'ios', or 'both'.`);
+      process.exit(1);
+    }
+
+    // Run Android and iOS setup in parallel when both are needed
+    const tasks: Promise<void>[] = [];
+
     if (platform === 'android' || platform === 'both') {
       const androidLibNode = pluginConfig.androidLibNode;
       if (androidLibNode) {
-        await setupAndroidLibNode(androidLibNode, forceDownload);
+        tasks.push(setupAndroidLibNode(androidLibNode, forceDownload));
       } else {
         console.warn('androidLibNode not configured in Capacitor config. Skipping Android.');
       }
@@ -223,16 +237,14 @@ async function main(): Promise<void> {
     if (platform === 'ios' || platform === 'both') {
       const iosLibNode = pluginConfig.iosLibNode;
       if (iosLibNode) {
-        await setupIOSLibNode(iosLibNode, forceDownload);
+        tasks.push(setupIOSLibNode(iosLibNode, forceDownload));
       } else {
         console.warn('iosLibNode not configured in Capacitor config. Skipping iOS.');
       }
     }
 
-    if (platform !== 'android' && platform !== 'ios' && platform !== 'both') {
-      console.error(`Invalid platform: ${platform}. Use 'android', 'ios', or 'both'.`);
-      process.exit(1);
-    }
+    // Wait for all tasks to complete in parallel
+    await Promise.all(tasks);
 
   } catch (error) {
     const err = error as Error;

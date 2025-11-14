@@ -46,7 +46,7 @@
     "docgen": "docgen --api NodeJSInterface --output-readme README.md --output-json dist/docs.json",
     "build-bridge": "tsc --project bridge/tsconfig.json && rollup -c bridge/rollup.config.mjs && rimraf ./bridge/build",
     "build-electron": "tsc --project electron/tsconfig.json && rollup -c electron/rollup.config.mjs && rimraf ./electron/build",
-    "build-scripts": "cd scripts && vite build --config vite.config.ts && chmod +x dist/after-copy.js dist/fetch-libnode.js dist/rebuild-native-module.js dist/ios-after-plugin-install.js",
+    "build-scripts": "cd scripts && vite build --config vite.config.ts",
     "build": "npm run clean && npm run docgen && tsc && rollup -c rollup.config.mjs && npm run build-electron && npm run build-bridge && npm run build-scripts",
     "clean": "rimraf ./dist && rimraf ./scripts/dist",
     "watch": "tsc --watch",
@@ -66,7 +66,6 @@
     "@ionic/swiftlint-config": "^2.0.0",
     "@rollup/plugin-commonjs": "^28.0.3",
     "@rollup/plugin-node-resolve": "^16.0.1",
-    "adm-zip": "^0.5.16",
     "electron": "^26.2.2",
     "eslint": "^8.57.0",
     "prettier": "^3.4.2",
@@ -99,6 +98,7 @@
     }
   },
   "dependencies": {
+    "adm-zip": "^0.5.16",
     "nodejs-mobile-gyp": "^0.4.0",
     "xcode": "^3.0.1"
   }
