@@ -36,28 +36,16 @@
  *   node scripts/fetch-libnode.js --platform ios --force
  */
 
-import { readFileSync, existsSync, mkdirSync, cpSync, rmSync, createWriteStream } from 'node:fs';
-import { join, dirname, resolve, isAbsolute } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { glob } from 'glob';
+import { existsSync, mkdirSync, cpSync, rmSync, createWriteStream } from 'node:fs';
+import { join, resolve, isAbsolute, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import https from 'node:https';
 import http from 'node:http';
-import AdmZip from 'adm-zip';
-
-interface CapacitorConfig {
-  plugins?: {
-    CapacitorNodeJS?: {
-      androidLibNode?: string;
-      iosLibNode?: string;
-    };
-  };
-}
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import * as AdmZipModule from 'adm-zip';
+const AdmZip = AdmZipModule.default || AdmZipModule;
+import { findCapacitorConfig, type CapacitorConfig } from './config-utils.js';
 
 // Get the project root from the current working directory (where Capacitor CLI runs)
-// This ensures we find the config file relative to where the command is executed
 const projectRoot = process.cwd();
 
 // Parse command line arguments and environment variables
@@ -67,101 +55,6 @@ const platformArg = process.env.CAPACITOR_PLATFORM ||
                     args.find(arg => arg.startsWith('--platform='))?.split('=')[1] ||
                     args[args.indexOf('--platform') + 1];
 const force = args.includes('--force') || args.includes('-f');
-
-/**
- * Find and load Capacitor config file
- * Looks for config file relative to the current working directory (where Capacitor CLI runs)
- * Also searches from the script's location to handle cases where hooks run from different directories
- */
-async function findCapacitorConfig(): Promise<CapacitorConfig> {
-  // Start from current working directory (where Capacitor CLI executes)
-  const searchRoot = process.cwd();
-
-  // Also try to find config relative to where this script is located
-  // This helps when the hook runs from a different working directory
-  const scriptDir = dirname(__filename);
-  const possibleRoots = [
-    searchRoot,
-    resolve(scriptDir, '../..'), // From scripts/dist/ to project root
-    resolve(scriptDir, '../../..'), // In case we're deeper
-  ];
-
-  // Remove duplicates and filter to existing directories
-  const uniqueRoots = Array.from(new Set(possibleRoots));
-
-  for (const root of uniqueRoots) {
-    const configPatterns = [
-      join(root, 'capacitor.config.ts'),
-      join(root, 'capacitor.config.js'),
-      join(root, 'capacitor.config.json'),
-    ];
-
-    // Also check parent directories (for monorepos)
-    const parentPatterns = [
-      join(root, '..', 'capacitor.config.ts'),
-      join(root, '..', 'capacitor.config.js'),
-      join(root, '..', 'capacitor.config.json'),
-    ];
-
-    for (const configPath of [...configPatterns, ...parentPatterns]) {
-      if (existsSync(configPath)) {
-        try {
-          if (configPath.endsWith('.json')) {
-            const content = readFileSync(configPath, 'utf8');
-            return JSON.parse(content) as CapacitorConfig;
-          } else {
-            // For TS/JS files, use dynamic import
-            // Note: TypeScript files (.ts) need to be compiled first or use ts-node/tsx
-            const module = await import(pathToFileURL(configPath).href);
-            return (module.default || module) as CapacitorConfig;
-          }
-        } catch (error) {
-          const err = error as Error;
-          console.warn(`Failed to load config from ${configPath}:`, err.message);
-        }
-      }
-    }
-  }
-
-  // Try using glob to find config files in current and parent directories
-  try {
-    const searchDirs = [...uniqueRoots, ...uniqueRoots.map(r => resolve(r, '..'))];
-    for (const searchDir of searchDirs) {
-      try {
-        const configFiles = await glob('capacitor.config.{ts,js,json}', {
-          cwd: searchDir,
-          absolute: true,
-          ignore: ['**/node_modules/**'],
-        });
-
-        for (const configPath of configFiles) {
-          try {
-            if (configPath.endsWith('.json')) {
-              const content = readFileSync(configPath, 'utf8');
-              return JSON.parse(content) as CapacitorConfig;
-            } else {
-              // For TS/JS files, try dynamic import
-              // Use pathToFileURL for proper file URL handling (fixes macOS file:// URL warning)
-              const fileUrl = pathToFileURL(configPath).href;
-              const module = await import(fileUrl);
-              return (module.default || module) as CapacitorConfig;
-            }
-          } catch (error) {
-            // Continue to next file
-            continue;
-          }
-        }
-      } catch (error) {
-        // Continue to next directory
-        continue;
-      }
-    }
-  } catch (error) {
-    // Fall through to error
-  }
-
-  throw new Error('Could not find Capacitor config file');
-}
 
 /**
  * Download a file from URL

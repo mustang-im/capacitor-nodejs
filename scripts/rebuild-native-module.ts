@@ -185,36 +185,61 @@ function buildGypModule(
 ): Promise<number> {
   const { platform, arch } = parseTarget(target);
   
-  // Ensure Android-specific environment variables are set
-  // Override any host defaults that might interfere
-  const androidEnv = {
-    ...env,
-    // Force Android platform
-    OS: 'android',
-    PLATFORM: 'android',
-    npm_config_platform: 'android',
-    
-    // Set architecture from target
-    npm_config_arch: arch,
-    TARGET_ARCH: arch,
-    
-    // Clear macOS-specific variables that might interfere
-    MACOSX_DEPLOYMENT_TARGET: '',
-    SDKROOT: '',
-    ARCHS: '',
-    ARCH: '',
-    
-    // Ensure nodejs-mobile-gyp is used
-    NODE_GYP: nodeGypPath,
-    npm_config_node_gyp: nodeGypPath,
-  };
+  let buildEnv: NodeJS.ProcessEnv;
+  
+  if (platform === 'ios') {
+    // iOS-specific environment variables
+    buildEnv = {
+      ...env,
+      // Force iOS platform
+      OS: 'ios',
+      PLATFORM: 'ios',
+      npm_config_platform: 'ios',
+      npm_config_format: 'make-ios',
+      npm_config_node_engine: 'chakracore',
+      
+      // Set architecture from target
+      npm_config_arch: arch,
+      TARGET_ARCH: arch,
+      
+      // Ensure nodejs-mobile-gyp is used
+      NODE_GYP: nodeGypPath,
+      npm_config_node_gyp: nodeGypPath,
+      
+      // Set node headers directory if available
+      ...(env.NODE_DIR ? { npm_config_nodedir: env.NODE_DIR } : {}),
+    };
+  } else {
+    // Android-specific environment variables
+    buildEnv = {
+      ...env,
+      // Force Android platform
+      OS: 'android',
+      PLATFORM: 'android',
+      npm_config_platform: 'android',
+      
+      // Set architecture from target
+      npm_config_arch: arch,
+      TARGET_ARCH: arch,
+      
+      // Clear macOS-specific variables that might interfere
+      MACOSX_DEPLOYMENT_TARGET: '',
+      SDKROOT: '',
+      ARCHS: '',
+      ARCH: '',
+      
+      // Ensure nodejs-mobile-gyp is used
+      NODE_GYP: nodeGypPath,
+      npm_config_node_gyp: nodeGypPath,
+    };
+  }
   
   console.log(`Building for target: ${target} (platform: ${platform}, arch: ${arch})`);
   
   return new Promise((resolve) => {
     const task = spawn('node', [nodeGypPath, 'rebuild', '--release'], {
       cwd: modulePath,
-      env: androidEnv,
+      env: buildEnv,
       stdio: 'inherit'
     });
     
