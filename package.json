@@ -14,6 +14,7 @@
     "android/CMakeLists.txt",
     "assets/",
     "dist/",
+    "scripts/dist/",
     "ios/Plugin/",
     "electron/",
     "CapacitorNodejs.podspec"
@@ -45,11 +46,14 @@
     "docgen": "docgen --api NodeJSInterface --output-readme README.md --output-json dist/docs.json",
     "build-bridge": "tsc --project bridge/tsconfig.json && rollup -c bridge/rollup.config.mjs && rimraf ./bridge/build",
     "build-electron": "tsc --project electron/tsconfig.json && rollup -c electron/rollup.config.mjs && rimraf ./electron/build",
-    "build": "npm run clean && npm run docgen && tsc && rollup -c rollup.config.mjs && npm run build-electron && npm run build-bridge",
-    "clean": "rimraf ./dist",
+    "build-scripts": "cd scripts && vite build --config vite.config.ts && chmod +x dist/after-copy.js dist/rebuild-native-module.js",
+    "build": "npm run clean && npm run docgen && tsc && rollup -c rollup.config.mjs && npm run build-electron && npm run build-bridge && npm run build-scripts",
+    "clean": "rimraf ./dist && rimraf ./scripts/dist",
     "watch": "tsc --watch",
     "pack:bridge": "cd assets/types/bridge && npm pack --pack-destination ../ && mv ../types-bridge-*.tgz ../bridge.tgz",
     "pack": "npm run pack:bridge && npm pack",
+    "fetch-libnode": "node scripts/dist/after-copy.js",
+    "capacitor:copy:after": "node scripts/dist/after-copy.js",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
@@ -72,7 +76,10 @@
     "rollup-plugin-copy": "^3.5.0",
     "rollup-plugin-dts": "^6.2.1",
     "swiftlint": "^2.0.0",
-    "typescript": "^4.5.0"
+    "typescript": "^4.5.0",
+    "vite": "^5.0.0",
+    "adm-zip": "^0.5.16",
+    "glob": "^11.0.3"
   },
   "peerDependencies": {
     "@capacitor/core": ">=7.0.0"
