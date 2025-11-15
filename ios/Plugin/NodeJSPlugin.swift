@@ -9,7 +9,14 @@ import Capacitor
  * here: https://capacitorjs.com/docs/plugins/ios
  */
 @objc(NodeJSPlugin)
-public class NodeJSPlugin: CAPPlugin {
+public class NodeJSPlugin: CAPPlugin, CAPBridgedPlugin {
+    public let identifier = "NodeJSPlugin"
+    public let jsName = "NodeJS"
+    public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "start", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "send", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "whenReady", returnType: CAPPluginReturnPromise)
+    ]
 
     private lazy var eventNotifier: PluginEventNotifier = PluginEventNotifierImpl(plugin: self)
     private var implementation: CapacitorNodeJS?
@@ -22,18 +29,30 @@ public class NodeJSPlugin: CAPPlugin {
 
     private func readPluginSettings() -> PluginSettings {
         let config = getConfig()
+        let nodeDir = config.getString("nodeDir") ?? "nodejs"
+        let startMode = config.getString("startMode") ?? "auto"
+        print("NodeJSPlugin: Reading config - nodeDir: '\(nodeDir)', startMode: '\(startMode)'")
+        NSLog("NodeJSPlugin: Reading config - nodeDir: '\(nodeDir)', startMode: '\(startMode)'")
         return PluginSettings(
-            nodeDir: config.getString("nodeDir") ?? "nodejs",
-            startMode: config.getString("startMode") ?? "auto"
+            nodeDir: nodeDir,
+            startMode: startMode
         )
     }
 
     public override func load() {
         super.load()
+        print("NodeJSPlugin: load() called")
+        NSLog("NodeJSPlugin: load() called")
+
         implementation = CapacitorNodeJS(eventNotifier: eventNotifier)
 
         let pluginSettings = readPluginSettings()
+        print("NodeJSPlugin: Settings - nodeDir: \(pluginSettings.nodeDir), startMode: \(pluginSettings.startMode)")
+        NSLog("NodeJSPlugin: Settings - nodeDir: \(pluginSettings.nodeDir), startMode: \(pluginSettings.startMode)")
+
         if pluginSettings.startMode == "auto" {
+            print("NodeJSPlugin: Auto-start enabled, calling startEngine...")
+            NSLog("NodeJSPlugin: Auto-start enabled, calling startEngine...")
             implementation?.startEngine(
                 call: nil,
                 projectDir: pluginSettings.nodeDir,
@@ -41,6 +60,9 @@ public class NodeJSPlugin: CAPPlugin {
                 args: [],
                 env: [:]
             )
+        } else {
+            print("NodeJSPlugin: Auto-start disabled (startMode: \(pluginSettings.startMode))")
+            NSLog("NodeJSPlugin: Auto-start disabled (startMode: \(pluginSettings.startMode))")
         }
 
         // Listen to app lifecycle notifications

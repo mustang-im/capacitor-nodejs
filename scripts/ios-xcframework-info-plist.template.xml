@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>AvailableLibraries</key>
+  <array>
+{{LIBRARIES}}
+  </array>
+  <key>CFBundlePackageType</key>
+  <string>{{CFBundlePackageType}}</string>
+  <key>XCFrameworkFormatVersion</key>
+  <string>{{XCFrameworkFormatVersion}}</string>
+</dict>
+</plist>
+
+<!-- Library entry template (used for each library):
+    <dict>
+      <key>LibraryIdentifier</key>
+      <string>{{LibraryIdentifier}}</string>
+      <key>LibraryPath</key>
+      <string>{{LibraryPath}}</string>
+      <key>SupportedArchitectures</key>
+      <array>
+        <string>{{SupportedArchitecture}}</string>
+      </array>
+      <key>SupportedPlatform</key>
+      <string>{{SupportedPlatform}}</string>
+    </dict>
+-->
+

@@ -21,7 +21,8 @@
 // int node_start(int argc, char *argv[]);
 
 // Native bridge functions for message passing
-// void native_receive(const char* channelName, const char* message);
+// Note: native_receive would be called from Node.js native bridge when messages are received
+// This requires implementing the native bridge in C/Objective-C
 
 #endif /* CapacitorNodeJS_Bridging_Header_h */
 

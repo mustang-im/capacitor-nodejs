@@ -44,8 +44,7 @@ import http from 'node:http';
 import AdmZip from 'adm-zip';
 import { findCapacitorConfig, type CapacitorConfig } from './config-utils.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Get plugin root directory
 // Script is at scripts/dist/fetch-libnode.js, so go up two levels to get plugin root
@@ -67,7 +66,8 @@ function downloadFile(url: string, destPath: string): Promise<void> {
     const protocol = url.startsWith('https:') ? https : http;
 
     protocol.get(url, (response) => {
-      if (response.statusCode === 301 || response.statusCode === 302) {
+      const statusCode = response.statusCode ?? 0;
+      if (statusCode === 301 || statusCode === 302) {
         // Handle redirects
         const location = response.headers.location;
         if (!location) {
@@ -79,8 +79,8 @@ function downloadFile(url: string, destPath: string): Promise<void> {
           .catch(reject);
       }
 
-      if (response.statusCode !== 200) {
-        reject(new Error(`Failed to download: ${response.statusCode} ${response.statusMessage || 'Unknown error'}`));
+      if (statusCode !== 200) {
+        reject(new Error(`Failed to download: ${statusCode} ${response.statusMessage ?? 'Unknown error'}`));
         return;
       }
 
@@ -108,8 +108,8 @@ async function extractZip(zipPath: string, extractTo: string): Promise<void> {
     const zip = new AdmZip(zipPath);
     zip.extractAllTo(extractTo, true);
   } catch (error) {
-    const err = error as Error;
-    throw new Error(`Failed to extract zip: ${err.message}`);
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to extract zip: ${message}`);
   }
 }
 
@@ -247,8 +247,8 @@ async function main(): Promise<void> {
     await Promise.all(tasks);
 
   } catch (error) {
-    const err = error as Error;
-    console.error('Error:', err.message);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Error:', message);
     process.exit(1);
   }
 }

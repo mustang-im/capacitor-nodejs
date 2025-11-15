@@ -65,6 +65,7 @@
     "@ionic/prettier-config": "^4.0.0",
     "@ionic/swiftlint-config": "^2.0.0",
     "@rollup/plugin-commonjs": "^28.0.3",
+    "@rollup/plugin-esm-shim": "^0.1.8",
     "@rollup/plugin-node-resolve": "^16.0.1",
     "electron": "^26.2.2",
     "eslint": "^8.57.0",
@@ -76,7 +77,8 @@
     "rollup-plugin-dts": "^6.2.1",
     "swiftlint": "^2.0.0",
     "typescript": "^4.5.0",
-    "vite": "^5.0.0"
+    "vite": "^5.0.0",
+    "vite-plugin-static-copy": "^3.1.4"
   },
   "peerDependencies": {
     "@capacitor/core": ">=7.0.0"

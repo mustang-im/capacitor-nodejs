@@ -3,7 +3,8 @@
  * Used by multiple scripts to avoid code duplication
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { glob } from 'node:fs/promises';
@@ -74,7 +75,7 @@ export async function findCapacitorConfig(): Promise<CapacitorConfig> {
       if (existsSync(configPath)) {
         try {
           if (configPath.endsWith('.json')) {
-            const content = readFileSync(configPath, 'utf8');
+            const content = await readFile(configPath, 'utf8');
             return JSON.parse(content) as CapacitorConfig;
           } else {
             // For TS/JS files, use dynamic import
@@ -84,8 +85,8 @@ export async function findCapacitorConfig(): Promise<CapacitorConfig> {
             return (module.default || module) as CapacitorConfig;
           }
         } catch (error) {
-          const err = error as Error;
-          console.warn(`Failed to load config from ${configPath}:`, err.message);
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`Failed to load config from ${configPath}:`, message);
         }
       }
     }
@@ -114,17 +115,19 @@ export async function findCapacitorConfig(): Promise<CapacitorConfig> {
       try {
         const globIter = glob('capacitor.config.{ts,js,json}', {
           cwd: searchDir,
-          ignore: ['**/node_modules/**'],
         });
         const configFiles: string[] = [];
         for await (const file of globIter) {
-          configFiles.push(resolve(searchDir, file));
+          // Filter out node_modules
+          if (!file.includes('node_modules')) {
+            configFiles.push(resolve(searchDir, file));
+          }
         }
 
         for (const configPath of configFiles) {
           try {
             if (configPath.endsWith('.json')) {
-              const content = readFileSync(configPath, 'utf8');
+              const content = await readFile(configPath, 'utf8');
               return JSON.parse(content) as CapacitorConfig;
             } else {
               // For TS/JS files, try dynamic import
@@ -132,7 +135,7 @@ export async function findCapacitorConfig(): Promise<CapacitorConfig> {
               const module = await import(fileUrl);
               return (module.default || module) as CapacitorConfig;
             }
-          } catch (error) {
+          } catch {
             // Continue to next file
             continue;
           }
@@ -147,8 +150,10 @@ export async function findCapacitorConfig(): Promise<CapacitorConfig> {
   }
 
   // If we still haven't found it, provide helpful error message
-  const searchedPaths = uniqueRoots.map(r => `  - ${r}`).join('\n');
-  throw new Error(`Could not find Capacitor config file. Searched in:\n${searchedPaths}\n\nMake sure capacitor.config.ts, capacitor.config.js, or capacitor.config.json exists in your app root.`);
+  const searchedPaths = uniqueRoots.map((r) => `  - ${r}`).join('\n');
+  throw new Error(
+    `Could not find Capacitor config file. Searched in:\n${searchedPaths}\n\nMake sure capacitor.config.ts, capacitor.config.js, or capacitor.config.json exists in your app root.`
+  );
 }
 
 /**
@@ -169,10 +174,10 @@ export async function findCapacitorProjectRoot(): Promise<string | null> {
 
   // Helper to check if a directory should be excluded (test/example projects)
   const shouldExcludeProject = (dir: string): boolean => {
-    const dirName = dir.split('/').pop() || '';
+    const dirName = dir.split('/').pop() ?? '';
     // Exclude known test/example project directories
     const excludePatterns = ['ios-nodejs', 'Capacitor-NodeJS', 'Capacitor-NodeJS_Examples'];
-    return excludePatterns.some(pattern => dir.includes(pattern));
+    return excludePatterns.some((pattern) => dir.includes(pattern));
   };
 
   // Helper to verify a directory is a valid Capacitor app project (not a plugin)
@@ -243,9 +248,10 @@ export async function findCapacitorProjectRoot(): Promise<string | null> {
 
   // Check if we're starting from a plugin directory or node_modules
   // If so, we need to search up more aggressively
-  const isInPluginOrNodeModules = searchRoot.includes('node_modules') ||
-                                   searchRoot.includes('capacitor-nodejs') ||
-                                   isPluginDirectory(searchRoot);
+  const isInPluginOrNodeModules =
+    searchRoot.includes('node_modules') ||
+    searchRoot.includes('capacitor-nodejs') ||
+    isPluginDirectory(searchRoot);
 
   // Priority 1: Search from current working directory first (where Capacitor CLI runs)
   // This is most likely to be the correct project root
@@ -324,11 +330,13 @@ export async function findCapacitorProjectRoot(): Promise<string | null> {
       try {
         const globIter = glob('capacitor.config.{ts,js,json}', {
           cwd: searchDir,
-          ignore: ['**/node_modules/**'],
         });
         const configFiles: string[] = [];
         for await (const file of globIter) {
-          configFiles.push(resolve(searchDir, file));
+          // Filter out node_modules
+          if (!file.includes('node_modules')) {
+            configFiles.push(resolve(searchDir, file));
+          }
         }
 
         // Prefer config files that are in valid Capacitor project directories

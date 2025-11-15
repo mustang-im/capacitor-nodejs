@@ -16,24 +16,31 @@ class NodeProcess {
 
     /// Start the Node.js process
     /// - Parameters:
-    ///   - modulePath: Path to the main Node.js script
-    ///   - parameter: Command line arguments
+    ///   - modulePath: Path to the main Node.js script (or empty if parameter contains full args)
+    ///   - parameter: Command line arguments (if modulePath is empty, should start with script path or -r flag)
     ///   - env: Environment variables
     ///   - cachePath: Path for temporary files
     func start(modulePath: String, parameter: [String], env: [String: String], cachePath: String) {
         // Set TMPDIR environment variable
         setenv("TMPDIR", cachePath, 1)
 
-        // Prepare arguments: ["node", modulePath, ...parameter]
-        let arguments = ["node", modulePath] + parameter
+        // Prepare arguments
+        let arguments: [String]
+        if modulePath.isEmpty {
+            // Full argument list provided (e.g., when using -r preload)
+            arguments = ["node"] + parameter
+        } else {
+            // Standard: ["node", modulePath, ...parameter]
+            arguments = ["node", modulePath] + parameter
+        }
 
         // Convert environment variables to C array format
         let envArray = env.map { "\($0.key)=\($0.value)" }
 
-        // Start Node.js in a background thread
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
-            self?.startNode(arguments: arguments, env: envArray)
-        }
+        // Start Node.js directly (already called from background thread)
+        print("NodeProcess: Starting Node.js with arguments: \(arguments)")
+        NSLog("NodeProcess: Starting Node.js with arguments: \(arguments)")
+        startNode(arguments: arguments, env: envArray)
     }
 
     /// Start Node.js engine using NodeMobile framework
@@ -67,7 +74,11 @@ class NodeProcess {
         // Start Node.js engine
         // Note: This requires the NodeMobile framework to be linked
         // The node_start function should be declared in the bridging header
+        print("NodeProcess: Calling node_start(\(argc), ...)")
+        NSLog("NodeProcess: Calling node_start(\(argc), ...)")
         node_start(argc, argv)
+        print("NodeProcess: node_start returned")
+        NSLog("NodeProcess: node_start returned")
     }
 
     /// Send a message to the Node.js process

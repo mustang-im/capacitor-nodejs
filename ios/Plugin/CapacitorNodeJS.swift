@@ -7,7 +7,6 @@ import Capacitor
  */
 class CapacitorNodeJS {
 
-    private var packageInfo: [String: Any]?
     private let eventNotifier: PluginEventNotifier
     private let engineStatus = EngineStatus()
     private let nodeProcess: NodeProcess
@@ -15,8 +14,6 @@ class CapacitorNodeJS {
     // Constants
     static let CHANNEL_NAME_APP = "APP_CHANNEL"
     static let CHANNEL_NAME_EVENT = "EVENT_CHANNEL"
-    static let PREFS_TAG = "CapacitorNodeJS_PREFS"
-    static let PREFS_APP_UPDATED_TIME = "AppUpdateTime"
     static let LOGGER_TAG = "CapacitorNodeJS"
 
     init(eventNotifier: PluginEventNotifier) {
@@ -26,14 +23,6 @@ class CapacitorNodeJS {
         self.nodeProcess = NodeProcess(receiveCallback: callback)
         // Set parent reference after initialization
         callback.parent = self
-
-        // Get app version info
-        if let infoDictionary = Bundle.main.infoDictionary {
-            self.packageInfo = [
-                "version": infoDictionary["CFBundleShortVersionString"] as? String ?? "",
-                "build": infoDictionary["CFBundleVersion"] as? String ?? ""
-            ]
-        }
     }
 
     /**
@@ -93,7 +82,7 @@ class CapacitorNodeJS {
         }
         engineStatus.setStarted()
 
-        // Run engine startup in background thread
+        // Run engine startup in background thread to avoid blocking UI
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
 
@@ -110,19 +99,19 @@ class CapacitorNodeJS {
             let cachePath = cacheURL.path
             let documentsPath = documentsURL.path
 
-            // Project path: Capacitor copies webDir contents to the bundle root
-            // The nodeDir is a subdirectory within the bundle resources
-            // Try both "nodejs-project" (common pattern) and configured "nodeDir" name
+            // Project path: Capacitor copies webDir contents to "public" folder in bundle
+            // The nodeDir is a subdirectory within public (e.g., public/nodejs)
+            // Try both "public/nodejs" (where Capacitor copies it) and "nodejs" (fallback)
             let projectPath: String
-            let nodejsProjectURL = bundleResourceURL.appendingPathComponent("nodejs-project")
-            let configuredNodeDirURL = bundleResourceURL.appendingPathComponent(projectDir)
+            let publicNodeDirURL = bundleResourceURL.appendingPathComponent("public").appendingPathComponent(projectDir)
+            let directNodeDirURL = bundleResourceURL.appendingPathComponent(projectDir)
 
-            if fileManager.fileExists(atPath: nodejsProjectURL.path) {
-                projectPath = nodejsProjectURL.path
-            } else if fileManager.fileExists(atPath: configuredNodeDirURL.path) {
-                projectPath = configuredNodeDirURL.path
+            if fileManager.fileExists(atPath: publicNodeDirURL.path) {
+                projectPath = publicNodeDirURL.path
+            } else if fileManager.fileExists(atPath: directNodeDirURL.path) {
+                projectPath = directNodeDirURL.path
             } else {
-                callWrapper.reject("Unable to find Node.js project directory. Checked: 'nodejs-project' and '\(projectDir)' in bundle resources.")
+                callWrapper.reject("Unable to find Node.js project directory. Checked: 'public/\(projectDir)' at \(publicNodeDirURL.path) and '\(projectDir)' at \(directNodeDirURL.path).")
                 return
             }
 
@@ -169,12 +158,16 @@ class CapacitorNodeJS {
 
             let projectMainURL = URL(fileURLWithPath: projectPath).appendingPathComponent(projectMainFile)
 
-            guard fileManager.fileExists(atPath: projectMainURL.path) else {
-                callWrapper.reject("Main script not found: \(projectMainURL.path)")
+            let projectMainPath = projectMainURL.path
+
+            guard fileManager.fileExists(atPath: projectMainPath) else {
+                callWrapper.reject("Main script not found: \(projectMainPath)")
                 return
             }
 
-            let projectMainPath = projectMainURL.path
+            // Check if dlopen override preload script exists
+            let dlopenOverridePath = URL(fileURLWithPath: projectPath).appendingPathComponent("override-dlopen-paths-preload.js").path
+            let hasDlopenOverride = fileManager.fileExists(atPath: dlopenOverridePath)
 
             // Combine module paths
             let modulesPaths = FileOperations.combineEnv(projectPath, modulesPath)
@@ -186,9 +179,26 @@ class CapacitorNodeJS {
             ]
             nodeEnv.merge(env) { _, new in new }
 
-            // Start Node.js process
-            self.nodeProcess.start(modulePath: projectMainPath, parameter: args, env: nodeEnv, cachePath: cachePath)
+            // Prepare arguments: if dlopen override exists, preload it with -r flag before the main script
+            var nodeArgs: [String]
+            if hasDlopenOverride {
+                // Preload the dlopen override script: ["-r", "preload-script.js", "main-script.js", ...args]
+                nodeArgs = ["-r", dlopenOverridePath, projectMainPath] + args
+                print("\(CapacitorNodeJS.LOGGER_TAG): Using dlopen override preload: \(dlopenOverridePath)")
+                NSLog("\(CapacitorNodeJS.LOGGER_TAG): Using dlopen override preload: \(dlopenOverridePath)")
+            } else {
+                // No preload, just pass main script and args
+                nodeArgs = [projectMainPath] + args
+            }
 
+            // Start Node.js process
+            print("\(CapacitorNodeJS.LOGGER_TAG): Starting Node.js with main file: \(projectMainPath)")
+            NSLog("\(CapacitorNodeJS.LOGGER_TAG): Starting Node.js with main file: \(projectMainPath)")
+            // Pass empty string as modulePath since we're handling it in nodeArgs
+            self.nodeProcess.start(modulePath: "", parameter: nodeArgs, env: nodeEnv, cachePath: cachePath)
+
+            print("\(CapacitorNodeJS.LOGGER_TAG): Node.js process started successfully")
+            NSLog("\(CapacitorNodeJS.LOGGER_TAG): Node.js process started successfully")
             callWrapper.resolve()
         }
     }
@@ -336,11 +346,24 @@ class CapacitorNodeJS {
         }
 
         func reject(_ message: String) {
-            call?.reject(message)
+            if let call = call {
+                call.reject(message)
+            } else {
+                // Log error when call is nil (auto-start mode)
+                print("\(CapacitorNodeJS.LOGGER_TAG): ERROR - \(message)")
+                NSLog("\(CapacitorNodeJS.LOGGER_TAG): ERROR - \(message)")
+            }
         }
 
         func reject(_ message: String, _ error: Error) {
-            call?.reject(message, error.localizedDescription)
+            if let call = call {
+                call.reject(message, error.localizedDescription)
+            } else {
+                // Log error when call is nil (auto-start mode)
+                let errorMessage = "\(message): \(error.localizedDescription)"
+                print("\(CapacitorNodeJS.LOGGER_TAG): ERROR - \(errorMessage)")
+                NSLog("\(CapacitorNodeJS.LOGGER_TAG): ERROR - \(errorMessage)")
+            }
         }
     }
 }

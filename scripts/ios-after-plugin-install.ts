@@ -10,13 +10,12 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
+import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import xcode from 'xcode';
-import { findCapacitorConfig, getNodeJSProjectPath, findCapacitorProjectRoot } from './config-utils.js';
+import { findCapacitorConfig, findCapacitorProjectRoot, getPluginSettings } from './config-utils.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Fix NodeMobile framework path in Pods project
@@ -106,146 +105,34 @@ function getNodeGypPath(projectRoot: string): string {
 }
 
 /**
- * Create rebuild script content
+ * Create rebuild script content by reading from shell script file and injecting variables
  */
-function createRebuildScript(nodejsProjectPath: string, rebuildScriptPathRel: string, nodeGypPath: string): string {
-  // Use array join to avoid TypeScript parsing bash ${} syntax
-  return [
-    'set -e',
-    '# Check if build native modules preference is set',
-    'if [ -z "$NODEJS_MOBILE_BUILD_NATIVE_MODULES" ]; then',
-    '  # If build native modules preference is not set, look for it in the project\'s',
-    '  # webDir/nodejs/NODEJS_MOBILE_BUILD_NATIVE_MODULES_VALUE.txt',
-    '  PREFERENCE_FILE_PATH="$CODESIGNING_FOLDER_PATH/nodejs/NODEJS_MOBILE_BUILD_NATIVE_MODULES_VALUE.txt"',
-    '  if [ -f "$PREFERENCE_FILE_PATH" ]; then',
-    '    NODEJS_MOBILE_BUILD_NATIVE_MODULES="$(cat $PREFERENCE_FILE_PATH | xargs)"',
-    '  fi',
-    'fi',
-    '',
-    'if [ -z "$NODEJS_MOBILE_BUILD_NATIVE_MODULES" ]; then',
-    '  # If build native modules preference is not set, try to find .gyp files to turn it on.',
-    '  gypfiles=($(find "$CODESIGNING_FOLDER_PATH/nodejs/" -type f -name "*.gyp" 2>/dev/null || true))',
-    '  gypfiles_count=${#gypfiles[@]}',
-    '  if [ "$gypfiles_count" -gt 0 ]; then',
-    '    NODEJS_MOBILE_BUILD_NATIVE_MODULES=1',
-    '  else',
-    '    NODEJS_MOBILE_BUILD_NATIVE_MODULES=0',
-    '  fi',
-    'fi',
-    '',
-    'if [ "1" != "$NODEJS_MOBILE_BUILD_NATIVE_MODULES" ]; then exit 0; fi',
-    '',
-    '# Delete object files that may already come from within the npm package.',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name "*.o" -type f -delete 2>/dev/null || true',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name "*.a" -type f -delete 2>/dev/null || true',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name "*.node" -type f -delete 2>/dev/null || true',
-    '',
-    '# Delete bundle contents that may be there from previous builds.',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -path "*/*.node/*" -delete 2>/dev/null || true',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name "*.node" -type d -delete 2>/dev/null || true',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -path "*/*.framework/*" -delete 2>/dev/null || true',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name "*.framework" -type d -delete 2>/dev/null || true',
-    '',
-    '# Symlinks to binaries are resolved during the copy, causing build time errors.',
-    '# The original project\'s .bin folder will be added to the path before building the native modules.',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -path "*/.bin/*" -delete 2>/dev/null || true',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name ".bin" -type d -delete 2>/dev/null || true',
-    '',
-    '# Get the nodejs-mobile-gyp location',
-    `NODEJS_MOBILE_GYP_BIN_FILE="${nodeGypPath}"`,
-    '',
-    '# Get the nodejs headers directory (libnode/include/node)',
-    '# Try multiple possible paths',
-    'NODEJS_HEADERS_DIR=""',
-    'if [ -d "$PROJECT_DIR/../ios/libnode/include/node" ]; then',
-    '  NODEJS_HEADERS_DIR="$( cd "$PROJECT_DIR" && cd ../ios/libnode/include/node && pwd )"',
-    'elif [ -d "$PROJECT_DIR/../../ios/libnode/include/node" ]; then',
-    '  NODEJS_HEADERS_DIR="$( cd "$PROJECT_DIR" && cd ../../ios/libnode/include/node && pwd )"',
-    'elif [ -d "$( dirname "$PRODUCT_SETTINGS_PATH" )/Plugins/capacitor-nodejs/ios/libnode/include/node" ]; then',
-    '  NODEJS_HEADERS_DIR="$( cd "$( dirname "$PRODUCT_SETTINGS_PATH" )" && cd Plugins/capacitor-nodejs/ios/libnode/include/node && pwd )"',
-    'fi',
-    '',
-    '# Adds the original project .bin to the path. It\'s a workaround',
-    '# to correctly build some modules that depend on symlinked modules,',
-    '# like node-pre-gyp.',
-    'if [ -d "$CODESIGNING_FOLDER_PATH/nodejs/node_modules/.bin/" ]; then',
-    '  PATH="$CODESIGNING_FOLDER_PATH/nodejs/node_modules/.bin/:$PATH"',
-    'fi',
-    '',
-    '# Rebuild modules for each architecture',
-    'pushd "$CODESIGNING_FOLDER_PATH/nodejs/" > /dev/null',
-    '',
-    'if [ "$PLATFORM_NAME" == "iphoneos" ]; then',
-    '  # Device build - arm64',
-    `  GYP_DEFINES="OS=ios" npm_config_nodedir="$NODEJS_HEADERS_DIR" npm_config_node_gyp="$NODEJS_MOBILE_GYP_BIN_FILE" npm_config_platform="ios" npm_config_format="make-ios" npm_config_node_engine="chakracore" npm_config_arch="arm64" node "${rebuildScriptPathRel}" "$CODESIGNING_FOLDER_PATH/nodejs/" "ios-arm64" || true`,
-    'else',
-    '  # Simulator build - x64',
-    `  GYP_DEFINES="OS=ios" npm_config_nodedir="$NODEJS_HEADERS_DIR" npm_config_node_gyp="$NODEJS_MOBILE_GYP_BIN_FILE" npm_config_platform="ios" npm_config_format="make-ios" npm_config_node_engine="chakracore" npm_config_arch="x64" node "${rebuildScriptPathRel}" "$CODESIGNING_FOLDER_PATH/nodejs/" "ios-x64" || true`,
-    'fi',
-    '',
-    'popd > /dev/null'
-  ].join('\n');
+function createRebuildScript(rebuildScriptPathRel: string, nodeGypPath: string, nodeDir: string): string {
+  // Read the shell script template
+  const scriptPath = join(__dirname, 'rebuild-native-modules.sh');
+  let script = readFileSync(scriptPath, 'utf8');
+
+  // Inject variables
+  script = script.replace(/\$\{NODE_DIR:-nodejs\}/g, nodeDir);
+  script = script.replace(/\$\{NODEJS_MOBILE_GYP_BIN_FILE\}/g, nodeGypPath);
+  script = script.replace(/\$\{REBUILD_SCRIPT_PATH\}/g, rebuildScriptPathRel);
+
+  return script;
 }
 
 /**
- * Create sign script content
+ * Create sign script content by reading from shell script file and injecting variables
  */
-function createSignScript(): string {
-  // Use array join to avoid TypeScript parsing bash ${} syntax
-  return [
-    'set -e',
-    '# Check if build native modules preference is set',
-    'if [ -z "$NODEJS_MOBILE_BUILD_NATIVE_MODULES" ]; then',
-    '  PREFERENCE_FILE_PATH="$CODESIGNING_FOLDER_PATH/nodejs/NODEJS_MOBILE_BUILD_NATIVE_MODULES_VALUE.txt"',
-    '  if [ -f "$PREFERENCE_FILE_PATH" ]; then',
-    '    NODEJS_MOBILE_BUILD_NATIVE_MODULES="$(cat $PREFERENCE_FILE_PATH | xargs)"',
-    '    # Remove the preference file so it doesn\'t get in the application package.',
-    '    rm "$PREFERENCE_FILE_PATH"',
-    '  fi',
-    'fi',
-    '',
-    'if [ -z "$NODEJS_MOBILE_BUILD_NATIVE_MODULES" ]; then',
-    '  gypfiles=($(find "$CODESIGNING_FOLDER_PATH/nodejs/" -type f -name "*.gyp" 2>/dev/null || true))',
-    '  gypfiles_count=${#gypfiles[@]}',
-    '  if [ "$gypfiles_count" -gt 0 ]; then',
-    '    NODEJS_MOBILE_BUILD_NATIVE_MODULES=1',
-    '  else',
-    '    NODEJS_MOBILE_BUILD_NATIVE_MODULES=0',
-    '  fi',
-    'fi',
-    '',
-    'if [ "1" != "$NODEJS_MOBILE_BUILD_NATIVE_MODULES" ]; then exit 0; fi',
-    '',
-    '# Delete object files',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name "*.o" -type f -delete 2>/dev/null || true',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name "*.a" -type f -delete 2>/dev/null || true',
-    '',
-    '# Create Info.plist for each framework built and loader override.',
-    '# Note: This helper script would need to be ported from nodejs-mobile-cordova',
-    '# For now, we\'ll skip this step and rely on the frameworks being properly built',
-    '# PATCH_SCRIPT_DIR="$( cd "$PROJECT_DIR" && cd ../../Plugins/capacitor-nodejs/install/helper-scripts/ && pwd )"',
-    '# NODEJS_PROJECT_DIR="$( cd "$CODESIGNING_FOLDER_PATH" && cd nodejs/ && pwd )"',
-    '# node "$PATCH_SCRIPT_DIR"/ios-create-plists-and-dlopen-override.js $NODEJS_PROJECT_DIR',
-    '',
-    '# Embed every resulting .framework in the application and delete them afterwards.',
-    'embed_framework()',
-    '{',
-    '    FRAMEWORK_NAME="$(basename "$1")"',
-    '    mkdir -p "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/"',
-    '    cp -r "$1" "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/"',
-    '    /usr/bin/codesign --force --sign $EXPANDED_CODE_SIGN_IDENTITY --preserve-metadata=identifier,entitlements,flags --timestamp=none "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/$FRAMEWORK_NAME"',
-    '}',
-    '',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name "*.framework" -type d | while read frmwrk_path; do embed_framework "$frmwrk_path"; done',
-    '',
-    '# Delete gyp temporary .deps dependency folders from the project structure.',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -path "*/.deps/*" -delete 2>/dev/null || true',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name ".deps" -type d -delete 2>/dev/null || true',
-    '',
-    '# Delete frameworks from their build paths',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -path "*/*.framework/*" -delete 2>/dev/null || true',
-    'find "$CODESIGNING_FOLDER_PATH/nodejs/" -name "*.framework" -type d -delete 2>/dev/null || true'
-  ].join('\n');
+function createSignScript(nodeDir: string, pluginScriptsPath: string): string {
+  // Read the shell script template
+  const scriptPath = join(__dirname, 'sign-native-modules.sh');
+  let script = readFileSync(scriptPath, 'utf8');
+
+  // Inject variables
+  script = script.replace(/\$\{NODE_DIR:-nodejs\}/g, nodeDir);
+  script = script.replace(/\$\{PLUGIN_SCRIPTS_PATH\}/g, pluginScriptsPath);
+
+  return script;
 }
 
 /**
@@ -273,9 +160,8 @@ async function main(): Promise<void> {
     // Fix NodeMobile framework path in Pods project
     await fixXcframeworkPath(projectRoot, iosPath);
 
-    // Get Capacitor config and nodejs project path
+    // Get Capacitor config
     const config = await findCapacitorConfig();
-    const nodejsProjectPath = getNodeJSProjectPath(config, projectRoot);
     const rebuildScriptPathRel = getRebuildScriptPath();
     const nodeGypPath = getNodeGypPath(projectRoot);
 
@@ -307,15 +193,25 @@ async function main(): Promise<void> {
 
     console.log(`Using target: ${target.name || target.uuid || 'unknown'}`);
 
+    // Get nodeDir from config
+    const settings = getPluginSettings(config);
+    const nodeDir = settings.nodeDir;
+
+    // Get plugin scripts path (relative to Xcode project)
+    const pluginScriptsPath = join('..', '..', 'node_modules', 'capacitor-nodejs', 'scripts', 'dist');
+
     // Create build phase scripts
     // Use relative path for the rebuild script
-    const rebuildScript = createRebuildScript(nodejsProjectPath, rebuildScriptPathRel, nodeGypPath);
-    const signScript = createSignScript();
+    const rebuildScript = createRebuildScript(rebuildScriptPathRel, nodeGypPath, nodeDir);
+    const signScript = createSignScript(nodeDir, pluginScriptsPath);
 
-    // Check if build phases already exist
+    // Check if build phases already exist (check for various possible names)
     const pbxprojContent = readFileSync(pbxprojFile, 'utf8');
-    const rebuildPhaseExists = pbxprojContent.includes('Build Node.js Mobile Native Modules');
-    const signPhaseExists = pbxprojContent.includes('Sign Node.js Mobile Native Modules');
+    const rebuildPhaseExists = pbxprojContent.includes('Build Node.js Mobile Native Modules') ||
+                               pbxprojContent.includes('Rebuild Node.js Native Modules');
+    const signPhaseExists = pbxprojContent.includes('Sign Node.js Mobile Native Modules') ||
+                           pbxprojContent.includes('Code Sign Node Native Modules') ||
+                           pbxprojContent.includes('Code Sign Node.js Native Modules');
 
     if (!rebuildPhaseExists) {
       project.addBuildPhase(
@@ -333,6 +229,8 @@ async function main(): Promise<void> {
       console.log('Build phase already exists: Build Node.js Mobile Native Modules');
     }
 
+    let fileUpdatedDirectly = false;
+
     if (!signPhaseExists) {
       project.addBuildPhase(
         [],
@@ -346,20 +244,63 @@ async function main(): Promise<void> {
       );
       console.log('Added build phase: Sign Node.js Mobile Native Modules');
     } else {
-      console.log('Build phase already exists: Sign Node.js Mobile Native Modules');
+      // Update existing sign phase with the new script
+      console.log('Build phase already exists: Sign Node.js Mobile Native Modules - updating script');
+      // Find and update ALL code sign phases (both old and new names)
+      let updatedContent = pbxprojContent;
+
+      // Update both "Code Sign Node Native Modules" and "Sign Node.js Mobile Native Modules" phases
+      // Match the phase definition more precisely - the shellScript is on one line with escaped newlines
+      // Match from the UUID to the end of shellScript
+      const phaseUpdateRegex = /((?:BFB3ED892E8365590007C670|53658CB2EE144605B9DBE77D) \/\* (?:Code Sign Node Native Modules|Sign Node\.js Mobile Native Modules) \*\/ = \{[\s\S]*?shellScript = ")[^"]*(";[\s\S]*?\};)/g;
+
+      updatedContent = updatedContent.replace(phaseUpdateRegex, (match, prefix, suffix) => {
+        // Escape the script properly for the project.pbxproj format
+        const escapedScript = signScript
+          .replace(/\\/g, '\\\\')  // Escape backslashes first
+          .replace(/"/g, '\\"')     // Escape quotes
+          .replace(/\n/g, '\\n')    // Escape newlines
+          .replace(/\$/g, '\\$');   // Escape dollar signs
+        return prefix + escapedScript + suffix;
+      });
+
+      if (updatedContent !== pbxprojContent) {
+        writeFileSync(pbxprojFile, updatedContent);
+        console.log('Updated existing code sign build phase(s) with dlopen override and code signing');
+        fileUpdatedDirectly = true;
+      } else {
+        console.log('Could not update existing phase, adding new one');
+        project.addBuildPhase(
+          [],
+          'PBXShellScriptBuildPhase',
+          'Sign Node.js Mobile Native Modules',
+          target.uuid,
+          {
+            shellScript: signScript,
+            shellPath: '/bin/sh',
+          }
+        );
+      }
     }
 
-    writeFileSync(pbxprojFile, project.writeSync());
+    // Only write if we didn't update the file directly
+    if (!fileUpdatedDirectly) {
+      writeFileSync(pbxprojFile, project.writeSync());
+    }
     console.log('iOS hook setup completed successfully.');
   } catch (error) {
-    const err = error as Error;
-    console.error(`Error setting up iOS hooks: ${err.message}`);
-    console.error(`Error stack: ${err.stack}`);
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error(`Error setting up iOS hooks: ${message}`);
+    if (stack) {
+      console.error(`Error stack: ${stack}`);
+    }
     process.exit(1);
   }
 }
 
 main().catch((error) => {
-  console.error(`Unhandled error: ${error}`);
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`Unhandled error: ${message}`);
   process.exit(1);
 });

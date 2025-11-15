@@ -11,8 +11,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { resolve, dirname } from 'node:path';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
  * Run a script and wait for it to complete
@@ -28,13 +27,11 @@ function runScript(scriptPath: string, args: string[] = []): Promise<void> {
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`Script ${scriptPath} exited with code ${code}`));
+        reject(new Error(`Script ${scriptPath} exited with code ${code ?? 'unknown'}`));
       }
     });
 
-    child.on('error', (error) => {
-      reject(error);
-    });
+    child.on('error', reject);
   });
 }
 
@@ -59,15 +56,15 @@ async function main(): Promise<void> {
       } catch (error) {
         // Don't fail the whole process if iOS setup fails
         // This might happen if iOS project doesn't exist yet
-        const err = error as Error;
-        console.warn(`iOS setup script failed (this is OK if iOS project doesn't exist): ${err.message}`);
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`iOS setup script failed (this is OK if iOS project doesn't exist): ${message}`);
       }
     }
 
     console.log('Post-copy hooks completed successfully.');
   } catch (error) {
-    const err = error as Error;
-    console.error('Error running post-copy hooks:', err.message);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('Error running post-copy hooks:', message);
     process.exit(1);
   }
 }

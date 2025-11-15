@@ -146,7 +146,8 @@ function findNodeGypPath(): string | null {
 
   // Try parent directories (for monorepos)
   let currentDir = process.cwd();
-  for (let i = 0; i < 5; i++) {
+  const maxDepth = 5;
+  for (let i = 0; i < maxDepth; i++) {
     const parentNodeGyp = join(currentDir, 'node_modules', 'nodejs-mobile-gyp', 'bin', 'node-gyp.js');
     if (existsSync(parentNodeGyp)) {
       return parentNodeGyp;
@@ -167,10 +168,10 @@ function parseTarget(target: string): { platform: string; arch: string } {
   if (parts.length < 2) {
     throw new Error(`Invalid target format: ${target}. Expected format: <platform>-<arch> (e.g., android-arm64)`);
   }
-  
-  const platform = parts[0]; // android or ios
-  const arch = parts.slice(1).join('-'); // arm64, arm, x64, etc.
-  
+
+  const [platform, ...archParts] = parts;
+  const arch = archParts.join('-'); // arm64, arm, x64, etc.
+
   return { platform, arch };
 }
 
@@ -240,13 +241,13 @@ function buildGypModule(
     const task = spawn('node', [nodeGypPath, 'rebuild', '--release'], {
       cwd: modulePath,
       env: buildEnv,
-      stdio: 'inherit'
+      stdio: 'inherit',
     });
-    
+
     task.on('close', (code) => {
       resolve(code ?? 0);
     });
-    
+
     task.on('error', (err) => {
       console.error(`Error building module: ${err.message}`);
       resolve(1);
@@ -320,8 +321,9 @@ async function main() {
   process.exit(code);
 }
 
-main().catch((err) => {
-  console.error('Fatal error:', err);
+main().catch((error) => {
+  const message = error instanceof Error ? error.message : String(error);
+  console.error('Fatal error:', message);
   process.exit(1);
 });
 
