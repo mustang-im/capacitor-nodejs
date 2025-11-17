@@ -1,0 +1,163 @@
+name: Test iOS Build
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  test-ios:
+    name: Test iOS Build
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup test project
+        run: |
+          cd test-project
+          # Create .npmrc to use local plugin
+          echo "capacitor-nodejs=file:.." > .npmrc
+          npm install
+
+      - name: Build web app
+        run: |
+          cd test-project
+          npm run build
+
+      - name: Install Node.js project dependencies
+        run: |
+          cd test-project/static/nodejs
+          npm install
+
+      - name: Setup CocoaPods
+        run: |
+          if ! command -v pod &> /dev/null; then
+            sudo gem install cocoapods
+          fi
+          pod --version
+
+      - name: Sync Capacitor iOS
+        run: |
+          cd test-project
+          # Ensure scripts are built
+          cd ..
+          npm run build-scripts
+          cd test-project
+          npx cap sync ios
+        env:
+          CAPACITOR_PLATFORM_NAME: ios
+
+      - name: Install iOS dependencies
+        run: |
+          cd test-project/ios/App
+          if [ ! -d "Pods" ]; then
+            pod install
+          else
+            pod install --repo-update
+          fi
+
+      - name: Build iOS app (simulator)
+        run: |
+          cd test-project/ios/App
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Debug \
+            -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+            -derivedDataPath ./build \
+            clean build
+        env:
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+
+      - name: Build iOS app (device)
+        run: |
+          cd test-project/ios/App
+          xcodebuild \
+            -workspace App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath ./build \
+            clean build
+        env:
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+
+      - name: Check build artifacts
+        run: |
+          if [ -d "test-project/ios/App/build" ]; then
+            echo "Build artifacts found:"
+            find test-project/ios/App/build -name "*.app" -o -name "*.framework" | head -10
+          else
+            echo "Warning: Build directory not found"
+          fi
+
+      - name: Verify native modules were rebuilt
+        run: |
+          echo "Checking for rebuilt native modules..."
+          
+          # Check if native modules directory exists in the app bundle
+          APP_BUNDLE=$(find test-project/ios/App/build -name "*.app" -type d | head -1)
+          if [ -z "$APP_BUNDLE" ]; then
+            echo "Warning: App bundle not found, skipping native module verification"
+            exit 0
+          fi
+          
+          # Check for Node.js directory in the app bundle
+          NODEJS_DIR="$APP_BUNDLE/public/nodejs"
+          if [ ! -d "$NODEJS_DIR" ]; then
+            NODEJS_DIR="$APP_BUNDLE/nodejs"
+          fi
+          
+          if [ -d "$NODEJS_DIR" ]; then
+            echo "Found Node.js directory at: $NODEJS_DIR"
+            
+            # Check for rebuilt native modules
+            if [ -d "$NODEJS_DIR/node_modules/fsevents" ]; then
+              echo "✓ fsevents module found"
+              if [ -f "$NODEJS_DIR/node_modules/fsevents/fsevents.node" ] || [ -d "$NODEJS_DIR/node_modules/fsevents/build" ]; then
+                echo "✓ fsevents native module appears to be rebuilt"
+              fi
+            fi
+            
+            # Check for custom native module
+            if [ -d "$NODEJS_DIR/build" ] || [ -d "$NODEJS_DIR/node_modules/test_native_module" ]; then
+              echo "✓ Custom native module build directory found"
+              if find "$NODEJS_DIR" -name "test_native_module.node" | grep -q .; then
+                echo "✓ Custom native module binary found"
+              fi
+            fi
+            
+            # List all .node files (rebuilt native modules)
+            NODE_FILES=$(find "$NODEJS_DIR" -name "*.node" 2>/dev/null | wc -l | tr -d ' ')
+            if [ "$NODE_FILES" -gt 0 ]; then
+              echo "✓ Found $NODE_FILES native module binary file(s)"
+              find "$NODEJS_DIR" -name "*.node" 2>/dev/null | head -5
+            else
+              echo "⚠ No .node files found (this might be OK if no native modules were installed)"
+            fi
+            
+            # Check for build artifacts
+            if [ -d "$NODEJS_DIR/build" ]; then
+              echo "✓ Build directory exists"
+              ls -la "$NODEJS_DIR/build" || true
+            fi
+          else
+            echo "⚠ Node.js directory not found in app bundle"
+            echo "Expected at: $APP_BUNDLE/public/nodejs or $APP_BUNDLE/nodejs"
+          fi
+

@@ -1,0 +1,24 @@
+{
+  "name": "capacitor-nodejs-test-app",
+  "version": "1.0.0",
+  "description": "Test app for Capacitor NodeJS plugin",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "build": "vite build",
+    "preview": "vite preview",
+    "dev": "vite",
+    "sync": "cap sync",
+    "ios:build": "cap sync ios && cd ios/App && xcodebuild -workspace App.xcworkspace -scheme App -configuration Release -destination 'generic/platform=iOS' clean build"
+  },
+  "dependencies": {
+    "@capacitor/core": "^7.0.0",
+    "@capacitor/cli": "^7.0.0",
+    "@capacitor/ios": "^7.0.0",
+    "capacitor-nodejs": "file:.."
+  },
+  "devDependencies": {
+    "vite": "^5.0.0"
+  }
+}
+

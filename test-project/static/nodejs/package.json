@@ -1,0 +1,11 @@
+{
+  "name": "capacitor-nodejs-test-project",
+  "version": "1.0.0",
+  "main": "./index.js",
+  "gypfile": true,
+  "dependencies": {
+    "node-addon-api": "^7.0.0",
+    "fsevents": "^2.3.3"
+  }
+}
+
