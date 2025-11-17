@@ -16,18 +16,15 @@ jobs:
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
 
       - name: Install dependencies
-        run: npm ci
+        run: yarn install
 
       - name: Build package
-        run: npm run build
+        run: yarn build
 
       - name: Pack package
-        run: npm run pack
+        run: yarn pack
 
       - name: Get version from package.json
         id: package-version
@@ -53,7 +50,7 @@ jobs:
           PACKAGE_VERSION=$(node -p "require('./package.json').version")
           ARCHIVE_NAME="${PACKAGE_NAME}-${PACKAGE_VERSION}.tgz"
           
-          # Find the packed file (npm pack creates it in the current directory)
+          # Find the packed file (yarn pack creates it in the current directory)
           # Exclude bridge.tgz which is created by pack:bridge script
           PACKED_FILE=$(ls -1 *.tgz 2>/dev/null | grep -v bridge.tgz | grep "^${PACKAGE_NAME}-" | head -1)
           
@@ -84,18 +81,6 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Release ${{ steps.tag.outputs.tag }}
-          body: |
-            ## Changes
-            
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/${{ steps.tag.outputs.tag }}/CHANGELOG.md) for details.
-            
-            ## Installation
-            
-            ```bash
-            npm install https://github.com/${{ github.repository }}/releases/download/${{ steps.tag.outputs.tag }}/${{ env.ARCHIVE_NAME }}
-            ```
-          files: |
-            ${{ env.ARCHIVE_NAME }}
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.tag, 'beta') || contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'rc') }}
         env:
