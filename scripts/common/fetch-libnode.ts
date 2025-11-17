@@ -52,10 +52,12 @@ const pluginRoot = dirname(dirname(__dirname));
 
 // Parse command line arguments and environment variables
 const args = process.argv.slice(2);
-// Get platform from CAPACITOR_PLATFORM environment variable (set by Capacitor) or command line
-const platformArg = process.env.CAPACITOR_PLATFORM ||
-                    args.find(arg => arg.startsWith('--platform='))?.split('=')[1] ||
-                    args[args.indexOf('--platform') + 1];
+// Get platform from command line first (explicit), then CAPACITOR_PLATFORM_NAME (set by Capacitor), then default to 'both'
+// Command line takes precedence to allow explicit platform selection
+// See: https://capacitorjs.com/docs/plugins/plugin-hooks for CAPACITOR_PLATFORM_NAME
+const platformArg = args.find(arg => arg.startsWith('--platform='))?.split('=')[1] ||
+                    (args.indexOf('--platform') >= 0 ? args[args.indexOf('--platform') + 1] : null) ||
+                    process.env.CAPACITOR_PLATFORM_NAME;
 const force = args.includes('--force') || args.includes('-f');
 
 /**

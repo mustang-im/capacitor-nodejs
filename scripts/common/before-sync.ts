@@ -38,7 +38,12 @@ function runScript(scriptPath: string, args: string[] = []): Promise<void> {
  */
 async function main(): Promise<void> {
   try {
-    const platform = process.env.CAPACITOR_PLATFORM || 'both';
+    // Get platform from CAPACITOR_PLATFORM_NAME environment variable (set by Capacitor)
+    // See: https://capacitorjs.com/docs/plugins/plugin-hooks
+    // When running 'npx cap sync ios', CAPACITOR_PLATFORM_NAME is set to 'ios'
+    // When running 'npx cap sync android', CAPACITOR_PLATFORM_NAME is set to 'android'
+    // When running 'npx cap sync', CAPACITOR_PLATFORM_NAME may not be set (defaults to 'both')
+    const platform = process.env.CAPACITOR_PLATFORM_NAME || 'both';
     // Scripts are all in the same directory (dist), so use __dirname directly
     const scriptsDir = __dirname;
 
