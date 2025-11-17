@@ -129,6 +129,30 @@ function getNodeGypPath(projectRoot: string): string {
 }
 
 /**
+ * Generate a 24-character hexadecimal UUID for Xcode project files
+ */
+function generateUuid(): string {
+  return Array.from({ length: 24 }, () => Math.floor(Math.random() * 16).toString(16)).join('').toUpperCase();
+}
+
+/**
+ * Escape script for embedding in Xcode project.pbxproj file
+ * The project.pbxproj format requires specific escaping for shell scripts
+ * Note: We do NOT escape dollar signs because they're needed for shell variables
+ */
+function escapeScriptForPbxproj(script: string): string {
+  // Escape in the order that matters:
+  // 1. Backslashes first (so we don't double-escape)
+  // 2. Quotes
+  // 3. Newlines
+  // Note: Dollar signs are NOT escaped - they're needed for shell variables like $NODE_MODULES_DIR
+  return script
+    .replace(/\\/g, '\\\\')  // Escape backslashes first
+    .replace(/"/g, '\\"')     // Escape quotes
+    .replace(/\n/g, '\\n');   // Escape newlines
+}
+
+/**
  * Create rebuild script content by reading from shell script file and injecting variables
  */
 function createRebuildScript(rebuildScriptPathRel: string, nodeGypPath: string, nodeDir: string): string {
@@ -237,7 +261,14 @@ async function main(): Promise<void> {
                            pbxprojContent.includes('Code Sign Node Native Modules') ||
                            pbxprojContent.includes('Code Sign Node.js Native Modules');
 
+    let fileUpdatedDirectly = false;
+
+    // Handle rebuild phase - write directly to project file to ensure proper escaping
+    // The xcode package doesn't properly escape scripts, so we write it manually
     if (!rebuildPhaseExists) {
+      const escapedRebuildScript = escapeScriptForPbxproj(rebuildScript);
+      
+      // Use xcode package to add the phase, but then manually fix the escaping
       project.addBuildPhase(
         [],
         'PBXShellScriptBuildPhase',
@@ -248,14 +279,29 @@ async function main(): Promise<void> {
           shellPath: '/bin/sh',
         }
       );
+      
+      // Write the project and then fix the escaping
+      writeFileSync(pbxprojFile, project.writeSync());
+      let updatedContent = readFileSync(pbxprojFile, 'utf8');
+      
+      // Find and fix the rebuild phase script escaping
+      const rebuildPhaseRegex = /(([A-F0-9]{24}) \/\* Build Node\.js Mobile Native Modules \*\/ = \{[\s\S]*?shellScript = ")([^"]*)(";[\s\S]*?\};)/;
+      updatedContent = updatedContent.replace(rebuildPhaseRegex, (match, prefix, uuid, script, suffix) => {
+        return prefix + escapedRebuildScript + suffix;
+      });
+      
+      writeFileSync(pbxprojFile, updatedContent);
+      pbxprojContent = updatedContent;
+      fileUpdatedDirectly = true;
       console.log('Added build phase: Build Node.js Mobile Native Modules');
     } else {
       console.log('Build phase already exists: Build Node.js Mobile Native Modules');
     }
 
-    let fileUpdatedDirectly = false;
-
     if (!signPhaseExists) {
+      const escapedSignScript = escapeScriptForPbxproj(signScript);
+      
+      // Use xcode package to add the phase, but then manually fix the escaping
       project.addBuildPhase(
         [],
         'PBXShellScriptBuildPhase',
@@ -266,6 +312,23 @@ async function main(): Promise<void> {
           shellPath: '/bin/sh',
         }
       );
+      
+      // Write the project and then fix the escaping
+      if (!fileUpdatedDirectly) {
+        writeFileSync(pbxprojFile, project.writeSync());
+        pbxprojContent = readFileSync(pbxprojFile, 'utf8');
+      }
+      
+      // Find and fix the sign phase script escaping
+      const signPhaseRegex = /(([A-F0-9]{24}) \/\* Sign Node\.js Mobile Native Modules \*\/ = \{[\s\S]*?shellScript = ")([^"]*)(";[\s\S]*?\};)/;
+      let updatedContent = pbxprojContent;
+      updatedContent = updatedContent.replace(signPhaseRegex, (match, prefix, uuid, script, suffix) => {
+        return prefix + escapedSignScript + suffix;
+      });
+      
+      writeFileSync(pbxprojFile, updatedContent);
+      pbxprojContent = updatedContent;
+      fileUpdatedDirectly = true;
       console.log('Added build phase: Sign Node.js Mobile Native Modules');
     } else {
       // Update existing sign phase with the new script
@@ -280,11 +343,7 @@ async function main(): Promise<void> {
 
       updatedContent = updatedContent.replace(phaseUpdateRegex, (match, prefix, suffix) => {
         // Escape the script properly for the project.pbxproj format
-        const escapedScript = signScript
-          .replace(/\\/g, '\\\\')  // Escape backslashes first
-          .replace(/"/g, '\\"')     // Escape quotes
-          .replace(/\n/g, '\\n')    // Escape newlines
-          .replace(/\$/g, '\\$');   // Escape dollar signs
+        const escapedScript = escapeScriptForPbxproj(signScript);
         return prefix + escapedScript + suffix;
       });
 
@@ -294,6 +353,8 @@ async function main(): Promise<void> {
         fileUpdatedDirectly = true;
       } else {
         console.log('Could not update existing phase, adding new one');
+        const escapedSignScript = escapeScriptForPbxproj(signScript);
+        
         project.addBuildPhase(
           [],
           'PBXShellScriptBuildPhase',
@@ -304,6 +365,23 @@ async function main(): Promise<void> {
             shellPath: '/bin/sh',
           }
         );
+        
+        // Write the project and then fix the escaping
+        if (!fileUpdatedDirectly) {
+          writeFileSync(pbxprojFile, project.writeSync());
+          pbxprojContent = readFileSync(pbxprojFile, 'utf8');
+        }
+        
+        // Find and fix the sign phase script escaping
+        const signPhaseRegex = /(([A-F0-9]{24}) \/\* Sign Node\.js Mobile Native Modules \*\/ = \{[\s\S]*?shellScript = ")([^"]*)(";[\s\S]*?\};)/;
+        let updatedContent = pbxprojContent;
+        updatedContent = updatedContent.replace(signPhaseRegex, (match, prefix, uuid, script, suffix) => {
+          return prefix + escapedSignScript + suffix;
+        });
+        
+        writeFileSync(pbxprojFile, updatedContent);
+        pbxprojContent = updatedContent;
+        fileUpdatedDirectly = true;
       }
     }
 
