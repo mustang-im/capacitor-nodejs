@@ -85,6 +85,8 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Release ${{ steps.tag.outputs.tag }}
+          files: |
+            ${{ env.ARCHIVE_NAME }}
           draft: false
           prerelease: ${{ contains(steps.tag.outputs.tag, 'beta') || contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'rc') }}
         env:
