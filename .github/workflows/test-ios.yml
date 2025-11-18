@@ -67,7 +67,15 @@ jobs:
       - name: Install Node.js project dependencies
         run: |
           cd test-project/static/nodejs
-          yarn install
+          # Remove any existing build artifacts
+          rm -rf node_modules package-lock.json yarn.lock build
+          # Install with --ignore-scripts to prevent building native modules during install
+          # They will be rebuilt for iOS during the Xcode build phase
+          # Use npm instead of yarn for better --ignore-scripts support
+          npm install --ignore-scripts
+        env:
+          # Additional environment variables to prevent script execution
+          npm_config_ignore_scripts: true
 
       - name: Setup CocoaPods
         run: |
