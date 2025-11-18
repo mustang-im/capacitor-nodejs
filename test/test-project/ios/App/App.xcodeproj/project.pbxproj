@@ -106,14 +106,6 @@
 				504EC3011FED79650016851F /* Frameworks */,
 				504EC3021FED79650016851F /* Resources */,
 				9592DBEFFC6D2A0C8D5DEB22 /* [CP] Embed Pods Frameworks */,
-				140AB91D817F4562BBB4295A /* Build Node.js Mobile Native Modules */,
-				4B56F73E508C41B7B023D047 /* Sign Node.js Mobile Native Modules */,
-				EC4D46B9EFFB4AB3B765F2CF /* Build Node.js Mobile Native Modules */,
-				2CA32B23D66B4E179AD2523B /* Sign Node.js Mobile Native Modules */,
-				6E16473621FA4792B2CD4993 /* Build Node.js Mobile Native Modules */,
-				7664F206DC9B4E2985D83075 /* Sign Node.js Mobile Native Modules */,
-				712D106528D1423EBF452FD8 /* Build Node.js Mobile Native Modules */,
-				BFE409AD9CD343C98FDE2B99 /* Sign Node.js Mobile Native Modules */,
 			);
 			buildRules = (
 			);
@@ -177,34 +169,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		140AB91D817F4562BBB4295A /* Build Node.js Mobile Native Modules */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Build Node.js Mobile Native Modules";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "export NODE_DIR=\"static/nodejs\"\nexport NODEJS_MOBILE_GYP_BIN_FILE=\"/Users/jeremyc/Documents/GitHub/Capacitor-NodeJS-m/test-project/node_modules/.bin/nodejs-mobile-gyp\"\nexport REBUILD_SCRIPT_PATH=\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/scripts/dist/rebuild-native-module.js\"\n\t\t\texport NODEJS_HEADERS_DIR=\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/ios/libnode/include/node\"\nsh \"../../node_modules/capacitor-nodejs/scripts/dist/rebuild-native-modules.sh\"\n";
-		};
-		4B56F73E508C41B7B023D047 /* Sign Node.js Mobile Native Modules */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-			);
-			name = "Sign Node.js Mobile Native Modules";
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "export NODE_DIR=\"static/nodejs\"\nexport PLUGIN_SCRIPTS_PATH=\"../../node_modules/capacitor-nodejs/scripts/dist\"\nsh \"../../node_modules/capacitor-nodejs/scripts/dist/sign-native-modules.sh\"\n";
-		};
 		6634F4EFEBD30273BCE97C65 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
@@ -237,108 +201,6 @@
 			shellPath = /bin/sh;
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-App/Pods-App-frameworks.sh\"\n";
 			showEnvVarsInLog = 0;
-		};
-		EC4D46B9EFFB4AB3B765F2CF /* Build Node.js Mobile Native Modules */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			name = "Build Node.js Mobile Native Modules";
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			shellPath = /bin/sh;
-			shellScript = "export NODE_DIR=\"nodejs\"
-export NODEJS_MOBILE_GYP_BIN_FILE=\"/Users/jeremyc/Documents/GitHub/Capacitor-NodeJS-m/test-project/node_modules/.bin/nodejs-mobile-gyp\"
-export REBUILD_SCRIPT_PATH=\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/scripts/dist/rebuild-native-module.js\"
-export NODEJS_HEADERS_DIR=\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/ios/libnode/include/node\"
-sh \"../../node_modules/capacitor-nodejs/scripts/dist/rebuild-native-modules.sh\"";
-		};
-		2CA32B23D66B4E179AD2523B /* Sign Node.js Mobile Native Modules */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			name = "Sign Node.js Mobile Native Modules";
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			shellPath = /bin/sh;
-			shellScript = "export NODE_DIR=\"nodejs\"
-export PLUGIN_SCRIPTS_PATH=\"../../node_modules/capacitor-nodejs/scripts/dist\"
-sh \"../../node_modules/capacitor-nodejs/scripts/dist/sign-native-modules.sh\"";
-		};
-		6E16473621FA4792B2CD4993 /* Build Node.js Mobile Native Modules */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			name = "Build Node.js Mobile Native Modules";
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			shellPath = /bin/sh;
-			shellScript = "export NODE_DIR=\"nodejs\"
-export NODEJS_MOBILE_GYP_BIN_FILE=\"/Users/jeremyc/Documents/GitHub/Capacitor-NodeJS-m/test/test-project/node_modules/.bin/nodejs-mobile-gyp\"
-export REBUILD_SCRIPT_PATH=\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/scripts/dist/rebuild-native-module.js\"
-export NODEJS_HEADERS_DIR=\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/ios/libnode/include/node\"
-sh \"../../node_modules/capacitor-nodejs/scripts/dist/rebuild-native-modules.sh\"";
-		};
-		7664F206DC9B4E2985D83075 /* Sign Node.js Mobile Native Modules */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			name = "Sign Node.js Mobile Native Modules";
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			shellPath = /bin/sh;
-			shellScript = "export NODE_DIR=\"nodejs\"
-export PLUGIN_SCRIPTS_PATH=\"../../node_modules/capacitor-nodejs/scripts/dist\"
-sh \"../../node_modules/capacitor-nodejs/scripts/dist/sign-native-modules.sh\"";
-		};
-		712D106528D1423EBF452FD8 /* Build Node.js Mobile Native Modules */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			name = "Build Node.js Mobile Native Modules";
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			shellPath = /bin/sh;
-			shellScript = "export NODE_DIR=\"nodejs\"
-export NODEJS_MOBILE_GYP_BIN_FILE=\"/Users/jeremyc/Documents/GitHub/Capacitor-NodeJS-m/test/test-project/node_modules/.bin/nodejs-mobile-gyp\"
-export REBUILD_SCRIPT_PATH=\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/scripts/dist/rebuild-native-module.js\"
-export NODEJS_HEADERS_DIR=\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/ios/libnode/include/node\"
-sh \"../../node_modules/capacitor-nodejs/scripts/dist/rebuild-native-modules.sh\"";
-		};
-		BFE409AD9CD343C98FDE2B99 /* Sign Node.js Mobile Native Modules */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			name = "Sign Node.js Mobile Native Modules";
-			inputPaths = (
-			);
-			outputPaths = (
-			);
-			shellPath = /bin/sh;
-			shellScript = "export NODE_DIR=\"nodejs\"
-export PLUGIN_SCRIPTS_PATH=\"../../node_modules/capacitor-nodejs/scripts/dist\"
-sh \"../../node_modules/capacitor-nodejs/scripts/dist/sign-native-modules.sh\"";
 		};
 /* End PBXShellScriptBuildPhase section */
 
