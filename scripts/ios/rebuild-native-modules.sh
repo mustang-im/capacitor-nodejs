@@ -23,8 +23,7 @@ fi
 if [ -z "$NODEJS_MOBILE_BUILD_NATIVE_MODULES" ]; then
   # If build native modules preference is not set, try to find .gyp files to turn it on.
   gypfiles=($(find "$NODEJS_DIR/" -type f -name "*.gyp" 2>/dev/null || true))
-  gypfiles_count=${#gypfiles[@]}
-  if [ "$gypfiles_count" -gt 0 ]; then
+  if [ ${#gypfiles[@]} -gt 0 ]; then
     NODEJS_MOBILE_BUILD_NATIVE_MODULES=1
   else
     NODEJS_MOBILE_BUILD_NATIVE_MODULES=0
@@ -49,38 +48,13 @@ find "$NODEJS_DIR/" -name "*.framework" -type d -delete 2>/dev/null || true
 find "$NODEJS_DIR/" -path "*/.bin/*" -delete 2>/dev/null || true
 find "$NODEJS_DIR/" -name ".bin" -type d -delete 2>/dev/null || true
 
-# Get the nodejs-mobile-gyp location
+# Get the nodejs-mobile-gyp location (set by build phase)
 NODEJS_MOBILE_GYP_BIN_FILE="${NODEJS_MOBILE_GYP_BIN_FILE}"
 
-# Get the nodejs headers directory (libnode/include/node)
-# Try multiple possible paths, starting with the plugin's node_modules directory
+# Get the nodejs headers directory (set by build phase, or use static path)
 NODEJS_HEADERS_DIR="${NODEJS_HEADERS_DIR:-}"
 if [ -z "$NODEJS_HEADERS_DIR" ]; then
-  # Try plugin's node_modules directory first (most common location)
-  if [ -d "$PROJECT_DIR/../../node_modules/capacitor-nodejs/ios/libnode/include/node" ]; then
-    NODEJS_HEADERS_DIR="$( cd "$PROJECT_DIR" && cd ../../node_modules/capacitor-nodejs/ios/libnode/include/node && pwd )"
-  # Try plugin's ios directory (development build)
-  elif [ -d "$PROJECT_DIR/../ios/libnode/include/node" ]; then
-    NODEJS_HEADERS_DIR="$( cd "$PROJECT_DIR" && cd ../ios/libnode/include/node && pwd )"
-  # Try project root's ios directory
-  elif [ -d "$PROJECT_DIR/../../ios/libnode/include/node" ]; then
-    NODEJS_HEADERS_DIR="$( cd "$PROJECT_DIR" && cd ../../ios/libnode/include/node && pwd )"
-  # Try Pods directory (CocoaPods installation)
-  elif [ -d "$( dirname "$PRODUCT_SETTINGS_PATH" )/Plugins/capacitor-nodejs/ios/libnode/include/node" ]; then
-    NODEJS_HEADERS_DIR="$( cd "$( dirname "$PRODUCT_SETTINGS_PATH" )" && cd Plugins/capacitor-nodejs/ios/libnode/include/node && pwd )"
-  fi
-fi
-
-# Warn if headers not found
-if [ -z "$NODEJS_HEADERS_DIR" ] || [ ! -d "$NODEJS_HEADERS_DIR" ]; then
-  echo "Warning: Node.js headers directory not found. Native module rebuild may fail."
-  echo "Expected headers at: libnode/include/node"
-  echo "Searched in:"
-  echo "  - $PROJECT_DIR/../../node_modules/capacitor-nodejs/ios/libnode/include/node"
-  echo "  - $PROJECT_DIR/../ios/libnode/include/node"
-  echo "  - $PROJECT_DIR/../../ios/libnode/include/node"
-  echo "  - $( dirname "$PRODUCT_SETTINGS_PATH" )/Plugins/capacitor-nodejs/ios/libnode/include/node"
-  echo "Set NODEJS_HEADERS_DIR environment variable to specify the correct path."
+  NODEJS_HEADERS_DIR="$( cd "$PROJECT_DIR" && cd ../../node_modules/capacitor-nodejs/ios/libnode/include/node && pwd )"
 fi
 
 # Adds the original project .bin to the path. It's a workaround
@@ -90,73 +64,29 @@ if [ -d "$NODEJS_DIR/node_modules/.bin/" ]; then
   PATH="$NODEJS_DIR/node_modules/.bin/:$PATH"
 fi
 
-# Rebuild modules for each architecture
+# Rebuild modules with right environment
 pushd "$NODEJS_DIR/" > /dev/null
 
-# Determine target architecture based on platform
 if [ "$PLATFORM_NAME" == "iphoneos" ]; then
-  # Device build - arm64
-  TARGET_ARCH="ios-arm64"
+  GYP_DEFINES="OS=ios" \
+  NODE_GYP="$NODEJS_MOBILE_GYP_BIN_FILE" \
+  npm_config_nodedir="$NODEJS_HEADERS_DIR" \
+  npm_config_node_gyp="$NODEJS_MOBILE_GYP_BIN_FILE" \
+  npm_config_platform="ios" \
+  npm_config_format="make-ios" \
+  npm_config_node_engine="chakracore" \
+  npm_config_arch="arm64" \
+  npm --verbose rebuild --build-from-source
 else
-  # Simulator build - x64
-  TARGET_ARCH="ios-x64"
-fi
-
-# Find all native modules (those with binding.gyp or *.gyp files) and rebuild them
-# Search in node_modules directory
-NODE_MODULES_DIR="$NODEJS_DIR/node_modules"
-if [ -d "$NODE_MODULES_DIR" ]; then
-  # Find all directories with binding.gyp or *.gyp files
-  # binding.gyp is the standard file name for GYP-based native modules
-  # Use -path pattern matching instead of -o to avoid parentheses
-  find "$NODE_MODULES_DIR" -type f -name "binding.gyp" | while read -r gypfile; do
-    # Get the directory containing the .gyp file (the module directory)
-    MODULE_DIR=$(dirname "$gypfile")
-    
-    # Skip if it's a nested node_modules (only process direct dependencies)
-    # Also skip if we've already processed this module (avoid duplicates)
-    if [[ "$MODULE_DIR" != *"/node_modules/node_modules/"* ]] && [ -f "$MODULE_DIR/package.json" ]; then
-      MODULE_NAME=$(basename "$MODULE_DIR")
-      echo "Rebuilding native module: $MODULE_NAME ($MODULE_DIR) for $TARGET_ARCH"
-      GYP_DEFINES="OS=ios" \
-      NODE_GYP="$NODEJS_MOBILE_GYP_BIN_FILE" \
-      npm_config_nodedir="$NODEJS_HEADERS_DIR" \
-      npm_config_node_gyp="$NODEJS_MOBILE_GYP_BIN_FILE" \
-      npm_config_platform="ios" \
-      npm_config_format="make-ios" \
-      npm_config_node_engine="chakracore" \
-      npm_config_arch="${TARGET_ARCH#ios-}" \
-      node "${REBUILD_SCRIPT_PATH}" "$MODULE_DIR" "$TARGET_ARCH" || {
-        echo "Warning: Failed to rebuild $MODULE_NAME, continuing with other modules..."
-      }
-    fi
-  done
-  
-  # Also find *.gyp files (other than binding.gyp)
-  find "$NODE_MODULES_DIR" -type f -name "*.gyp" ! -name "binding.gyp" | while read -r gypfile; do
-    # Get the directory containing the .gyp file (the module directory)
-    MODULE_DIR=$(dirname "$gypfile")
-    
-    # Skip if it's a nested node_modules (only process direct dependencies)
-    # Also skip if we've already processed this module (avoid duplicates)
-    if [[ "$MODULE_DIR" != *"/node_modules/node_modules/"* ]] && [ -f "$MODULE_DIR/package.json" ]; then
-      MODULE_NAME=$(basename "$MODULE_DIR")
-      echo "Rebuilding native module: $MODULE_NAME ($MODULE_DIR) for $TARGET_ARCH"
-      GYP_DEFINES="OS=ios" \
-      NODE_GYP="$NODEJS_MOBILE_GYP_BIN_FILE" \
-      npm_config_nodedir="$NODEJS_HEADERS_DIR" \
-      npm_config_node_gyp="$NODEJS_MOBILE_GYP_BIN_FILE" \
-      npm_config_platform="ios" \
-      npm_config_format="make-ios" \
-      npm_config_node_engine="chakracore" \
-      npm_config_arch="${TARGET_ARCH#ios-}" \
-      node "${REBUILD_SCRIPT_PATH}" "$MODULE_DIR" "$TARGET_ARCH" || {
-        echo "Warning: Failed to rebuild $MODULE_NAME, continuing with other modules..."
-      }
-    fi
-  done
-else
-  echo "Warning: node_modules directory not found at $NODE_MODULES_DIR"
+  GYP_DEFINES="OS=ios" \
+  NODE_GYP="$NODEJS_MOBILE_GYP_BIN_FILE" \
+  npm_config_nodedir="$NODEJS_HEADERS_DIR" \
+  npm_config_node_gyp="$NODEJS_MOBILE_GYP_BIN_FILE" \
+  npm_config_platform="ios" \
+  npm_config_format="make-ios" \
+  npm_config_node_engine="chakracore" \
+  npm_config_arch="x64" \
+  npm --verbose rebuild --build-from-source
 fi
 
 popd > /dev/null
