@@ -225,9 +225,11 @@ sh "${escapedShellScriptPath}"`;
  */
 async function main(): Promise<void> {
   try {
-    const projectRoot = await findCapacitorProjectRoot() || process.cwd();
-    console.log(`Searching for iOS project from project root: ${projectRoot}`);
+    const currentWorkingDir = process.cwd();
+    const foundProjectRoot = await findCapacitorProjectRoot();
+    const projectRoot = foundProjectRoot || currentWorkingDir;
     const iosPath = findIOSProjectPath(projectRoot);
+    
     if (!iosPath) {
       console.warn(`iOS project not found. Searched from: ${projectRoot}`);
       console.warn('Skipping iOS sync setup.');
