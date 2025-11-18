@@ -138,18 +138,23 @@ function generateUuid(): string {
 /**
  * Escape script for embedding in Xcode project.pbxproj file
  * The project.pbxproj format requires specific escaping for shell scripts
+ * The script must be on a single line with \n for newlines
  * Note: We do NOT escape dollar signs because they're needed for shell variables
  */
 function escapeScriptForPbxproj(script: string): string {
   // Escape in the order that matters:
   // 1. Backslashes first (so we don't double-escape)
   // 2. Quotes
-  // 3. Newlines
+  // 3. Newlines (convert to \n)
+  // 4. Tabs (convert to \t)
   // Note: Dollar signs are NOT escaped - they're needed for shell variables like $NODE_MODULES_DIR
   return script
     .replace(/\\/g, '\\\\')  // Escape backslashes first
     .replace(/"/g, '\\"')     // Escape quotes
-    .replace(/\n/g, '\\n');   // Escape newlines
+    .replace(/\t/g, '\\t')     // Escape tabs
+    .replace(/\r\n/g, '\\n')  // Convert Windows line endings
+    .replace(/\r/g, '\\n')    // Convert old Mac line endings
+    .replace(/\n/g, '\\n');   // Convert Unix line endings
 }
 
 /**
@@ -285,8 +290,11 @@ async function main(): Promise<void> {
       let updatedContent = readFileSync(pbxprojFile, 'utf8');
       
       // Find and fix the rebuild phase script escaping
-      const rebuildPhaseRegex = /(([A-F0-9]{24}) \/\* Build Node\.js Mobile Native Modules \*\/ = \{[\s\S]*?shellScript = ")([^"]*)(";[\s\S]*?\};)/;
+      // Match the build phase with shellScript - need to match everything until the closing quote
+      // The script might span multiple lines, so we need to match newlines too
+      const rebuildPhaseRegex = /(([A-F0-9]{24}) \/\* Build Node\.js Mobile Native Modules \*\/ = \{[\s\S]*?shellScript = ")([\s\S]*?)(";[\s\S]*?\};)/;
       updatedContent = updatedContent.replace(rebuildPhaseRegex, (match, prefix, uuid, script, suffix) => {
+        // Replace the entire script content with properly escaped version
         return prefix + escapedRebuildScript + suffix;
       });
       
@@ -320,9 +328,12 @@ async function main(): Promise<void> {
       }
       
       // Find and fix the sign phase script escaping
-      const signPhaseRegex = /(([A-F0-9]{24}) \/\* Sign Node\.js Mobile Native Modules \*\/ = \{[\s\S]*?shellScript = ")([^"]*)(";[\s\S]*?\};)/;
+      // Match the build phase with shellScript - need to match everything until the closing quote
+      // The script might span multiple lines, so we need to match newlines too
+      const signPhaseRegex = /(([A-F0-9]{24}) \/\* Sign Node\.js Mobile Native Modules \*\/ = \{[\s\S]*?shellScript = ")([\s\S]*?)(";[\s\S]*?\};)/;
       let updatedContent = pbxprojContent;
       updatedContent = updatedContent.replace(signPhaseRegex, (match, prefix, uuid, script, suffix) => {
+        // Replace the entire script content with properly escaped version
         return prefix + escapedSignScript + suffix;
       });
       
@@ -373,9 +384,12 @@ async function main(): Promise<void> {
         }
         
         // Find and fix the sign phase script escaping
-        const signPhaseRegex = /(([A-F0-9]{24}) \/\* Sign Node\.js Mobile Native Modules \*\/ = \{[\s\S]*?shellScript = ")([^"]*)(";[\s\S]*?\};)/;
+        // Match the build phase with shellScript - need to match everything until the closing quote
+        // The script might span multiple lines, so we need to match newlines too
+        const signPhaseRegex = /(([A-F0-9]{24}) \/\* Sign Node\.js Mobile Native Modules \*\/ = \{[\s\S]*?shellScript = ")([\s\S]*?)(";[\s\S]*?\};)/;
         let updatedContent = pbxprojContent;
         updatedContent = updatedContent.replace(signPhaseRegex, (match, prefix, uuid, script, suffix) => {
+          // Replace the entire script content with properly escaped version
           return prefix + escapedSignScript + suffix;
         });
         
