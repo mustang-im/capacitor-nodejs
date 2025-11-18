@@ -64,6 +64,28 @@ if [ -d "$NODEJS_DIR/node_modules/.bin/" ]; then
   PATH="$NODEJS_DIR/node_modules/.bin/:$PATH"
 fi
 
+# Patch package.json files to use nodejs-mobile-gyp instead of node-gyp
+# This ensures that when npm rebuild runs install scripts, they use nodejs-mobile-gyp
+find "$NODEJS_DIR/node_modules" -name "package.json" -type f | while read -r pkgjson; do
+  # Check if this package has a binding.gyp (it's a native module)
+  pkgdir=$(dirname "$pkgjson")
+  if [ -f "$pkgdir/binding.gyp" ] || find "$pkgdir" -maxdepth 1 -name "*.gyp" -type f | grep -q .; then
+    # Backup original if not already backed up
+    if [ ! -f "$pkgjson.bak" ]; then
+      cp "$pkgjson" "$pkgjson.bak" 2>/dev/null || true
+    fi
+    # Replace node-gyp references with nodejs-mobile-gyp
+    # Be careful to only replace standalone "node-gyp" commands, not "node-gyp-build" or other packages
+    # Use node to execute the script since it's a .js file
+    sed -i.tmp "s|\"node-gyp\"|\"node $NODEJS_MOBILE_GYP_BIN_FILE\"|g" "$pkgjson" 2>/dev/null || true
+    # Only replace "node-gyp " (with space) or "node-gyp\"" (with quote) to avoid replacing "node-gyp-build"
+    sed -i.tmp "s|node-gyp |node $NODEJS_MOBILE_GYP_BIN_FILE |g" "$pkgjson" 2>/dev/null || true
+    sed -i.tmp "s|node-gyp\"|node $NODEJS_MOBILE_GYP_BIN_FILE\"|g" "$pkgjson" 2>/dev/null || true
+    sed -i.tmp "s|node-gyp'|node $NODEJS_MOBILE_GYP_BIN_FILE'|g" "$pkgjson" 2>/dev/null || true
+    rm -f "$pkgjson.tmp" 2>/dev/null || true
+  fi
+done
+
 # Rebuild modules with right environment
 pushd "$NODEJS_DIR/" > /dev/null
 
@@ -90,4 +112,10 @@ else
 fi
 
 popd > /dev/null
+
+# Restore original package.json files
+find "$NODEJS_DIR/node_modules" -name "package.json.bak" -type f | while read -r bakfile; do
+  pkgjson="${bakfile%.bak}"
+  mv "$bakfile" "$pkgjson" 2>/dev/null || true
+done
 

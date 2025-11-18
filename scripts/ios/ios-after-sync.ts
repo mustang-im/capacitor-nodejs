@@ -110,12 +110,14 @@ function findXcodeProject(iosPath: string): string | null {
 }
 
 /**
- * Get nodejs-mobile-gyp path
+ * Get nodejs-mobile-gyp path relative to Xcode project
+ * Uses ${PROJECT_DIR} for absolute path resolution (like headers path)
  */
-function getNodeGypPath(projectRoot: string): string {
+function getNodeGypPath(): string {
   // nodejs-mobile-gyp is installed in node_modules/.bin/nodejs-mobile-gyp
-  // From project root, it's at node_modules/.bin/nodejs-mobile-gyp
-  return join(projectRoot, 'node_modules', '.bin', 'nodejs-mobile-gyp');
+  // From Xcode project (ios/App/App.xcodeproj), relative path is: ../../node_modules/.bin/nodejs-mobile-gyp
+  // Use ${PROJECT_DIR} for absolute path resolution
+  return '${PROJECT_DIR}/../../node_modules/.bin/nodejs-mobile-gyp';
 }
 
 /**
@@ -159,8 +161,10 @@ function createRebuildBuildPhaseScript(nodeGypPath: string, nodeDir: string, nod
   // Create a script that sets environment variables and executes the external script file
   // Escape paths to handle special characters, but preserve ${PROJECT_DIR} variable
   const escapedNodeDir = escapeShellValue(nodeDir);
-  const escapedNodeGypPath = escapeShellValue(nodeGypPath);
-  // Headers path uses ${PROJECT_DIR} for absolute path resolution
+  // nodeGypPath and nodeHeadersPath use ${PROJECT_DIR} for absolute path resolution
+  const escapedNodeGypPath = nodeGypPath.includes('${PROJECT_DIR}')
+    ? nodeGypPath.replace(/"/g, '\\"')  // Only escape quotes, preserve ${PROJECT_DIR}
+    : escapeShellValue(nodeGypPath);
   const escapedNodeHeadersPath = nodeHeadersPath.includes('${PROJECT_DIR}')
     ? nodeHeadersPath.replace(/"/g, '\\"')  // Only escape quotes, preserve ${PROJECT_DIR}
     : escapeShellValue(nodeHeadersPath);
@@ -219,7 +223,7 @@ async function main(): Promise<void> {
 
     // Get Capacitor config
     const config = await findCapacitorConfig();
-    const nodeGypPath = getNodeGypPath(projectRoot);
+    const nodeGypPath = getNodeGypPath();
 
     // Load Xcode project using xcode package
     const pbxprojFile = join(xcodeprojDir, 'project.pbxproj');
