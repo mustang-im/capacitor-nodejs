@@ -232,7 +232,10 @@ async function main(): Promise<void> {
       if (androidLibNode) {
         tasks.push(setupAndroidLibNode(androidLibNode, forceDownload));
       } else {
-        console.warn('androidLibNode not configured in Capacitor config. Skipping Android.');
+        // Fallback to default nodejs-mobile release URL (latest v18.20.4)
+        const defaultAndroidLibNode = 'https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-android.zip';
+        console.log('androidLibNode not configured, using default fallback URL:', defaultAndroidLibNode);
+        tasks.push(setupAndroidLibNode(defaultAndroidLibNode, forceDownload));
       }
     }
 
@@ -241,7 +244,10 @@ async function main(): Promise<void> {
       if (iosLibNode) {
         tasks.push(setupIOSLibNode(iosLibNode, forceDownload));
       } else {
-        console.warn('iosLibNode not configured in Capacitor config. Skipping iOS.');
+        // Fallback to default nodejs-mobile release URL (latest v18.20.4)
+        const defaultIOSLibNode = 'https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-ios.zip';
+        console.log('iosLibNode not configured, using default fallback URL:', defaultIOSLibNode);
+        tasks.push(setupIOSLibNode(defaultIOSLibNode, forceDownload));
       }
     }
 

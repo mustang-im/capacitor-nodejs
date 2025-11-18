@@ -6,4 +6,5 @@ android/
 *.log
 .vscode/
 .idea/
+package-lock.json
 

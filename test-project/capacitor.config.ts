@@ -6,7 +6,7 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   plugins: {
     CapacitorNodeJS: {
-      nodeDir: 'nodejs'
+      nodeDir: 'nodejs',
     }
   }
 };

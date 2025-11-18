@@ -13,39 +13,43 @@ let nativeModuleTest = {
 };
 
 try {
-  // Test 1: Try to load our custom native module
+  // Test 1: Try to load better-sqlite3 (requires native rebuild for iOS)
   try {
-    const testNative = require('./build/Release/test_native_module.node');
-    nativeModuleTest.modules.test_native_module = {
+    const Database = require('better-sqlite3');
+    const db = new Database(':memory:');
+    db.exec('CREATE TABLE test (id INTEGER PRIMARY KEY, name TEXT)');
+    db.prepare('INSERT INTO test (name) VALUES (?)').run('test');
+    const row = db.prepare('SELECT * FROM test').get();
+    db.close();
+    
+    nativeModuleTest.modules['better-sqlite3'] = {
       loaded: true,
-      result: testNative.hello()
+      tested: true,
+      result: row
     };
-    console.log('Custom native module loaded:', testNative.hello());
+    console.log('Native module better-sqlite3 loaded and tested successfully');
   } catch (e) {
-    nativeModuleTest.modules.test_native_module = {
+    nativeModuleTest.modules['better-sqlite3'] = {
       loaded: false,
       error: e.message
     };
-    console.log('Custom native module test:', e.message);
+    console.log('Native module better-sqlite3 test:', e.message);
   }
 
-  // Test 2: Try to load fsevents (a native module that should be rebuilt)
-  // Note: fsevents is macOS-specific, but the rebuild process should still work
+  // Test 2: Try to load bufferutil (requires native rebuild for iOS)
   try {
-    const fsevents = require('fsevents');
-    nativeModuleTest.modules.fsevents = {
+    const bufferutil = require('bufferutil');
+    nativeModuleTest.modules.bufferutil = {
       loaded: true,
-      name: 'fsevents'
+      name: 'bufferutil'
     };
-    console.log('Native module fsevents loaded successfully');
+    console.log('Native module bufferutil loaded successfully');
   } catch (e) {
-    // fsevents might not be available on iOS, but that's OK
-    // We're testing that the rebuild process runs, not that fsevents works
-    nativeModuleTest.modules.fsevents = {
+    nativeModuleTest.modules.bufferutil = {
       loaded: false,
       error: e.message
     };
-    console.log('Native module fsevents test (expected on iOS):', e.message);
+    console.log('Native module bufferutil test:', e.message);
   }
 
   // Check if at least one module loaded
