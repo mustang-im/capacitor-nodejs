@@ -254,7 +254,7 @@ async function main(): Promise<void> {
     const signScript = createSignScript(nodeDir, pluginScriptsPath);
 
     // Check if build phases already exist (check for various possible names)
-    const pbxprojContent = readFileSync(pbxprojFile, 'utf8');
+    let pbxprojContent = readFileSync(pbxprojFile, 'utf8');
     const rebuildPhaseExists = pbxprojContent.includes('Build Node.js Mobile Native Modules') ||
                                pbxprojContent.includes('Rebuild Node.js Native Modules');
     const signPhaseExists = pbxprojContent.includes('Sign Node.js Mobile Native Modules') ||
