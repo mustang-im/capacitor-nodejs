@@ -31,7 +31,8 @@ async function createFramework(
   // Hash is based on the original relative path
   const hash = createHash('sha1').update(originalRelativePath).digest('hex').substring(0, 40);
   const frameworkName = `node${hash}.framework`;
-  const frameworkDir = join(nodejsDir, '..', '..', 'Frameworks', frameworkName);
+  // Create framework in a temporary location within nodejsDir (will be copied to Frameworks later)
+  const frameworkDir = join(nodejsDir, '.frameworks', frameworkName);
 
   // Create framework directory structure
   await mkdir(frameworkDir, { recursive: true });
@@ -79,7 +80,63 @@ async function createFramework(
 async function findAndCreateFrameworks(nodejsDir: string): Promise<FrameworkInfo[]> {
   const frameworks: FrameworkInfo[] = [];
 
-  // Process build/Release .node directories
+  // Process build/Release .node directories recursively in node_modules
+  // npm rebuild builds modules in their own directories: node_modules/<module>/build/Release/
+  const nodeModulesPath = join(nodejsDir, 'node_modules');
+  if (existsSync(nodeModulesPath)) {
+    try {
+      const modules = await readdir(nodeModulesPath, { withFileTypes: true });
+      const moduleFrameworks = await Promise.all(
+        modules
+          .filter(entry => entry.isDirectory())
+          .map(async (moduleEntry) => {
+            const modulePath = join(nodeModulesPath, moduleEntry.name);
+            const buildReleasePath = join(modulePath, 'build', 'Release');
+            
+            if (!existsSync(buildReleasePath)) {
+              return [];
+            }
+
+            try {
+              const entries = await readdir(buildReleasePath, { withFileTypes: true });
+              const buildReleaseFrameworks = await Promise.all(
+                entries
+                  .filter(entry => entry.isDirectory() && entry.name.endsWith('.node'))
+                  .map(async (entry) => {
+                    const nodeDir = join(buildReleasePath, entry.name);
+                    try {
+                      const files = await readdir(nodeDir);
+                      const fileFrameworks = await Promise.all(
+                        files.map(async (file) => {
+                          const filePath = join(nodeDir, file);
+                          const fileStat = await stat(filePath);
+                          if (fileStat.isFile() && !file.endsWith('.plist') && !file.endsWith('.framework')) {
+                            // Relative path from nodejsDir: node_modules/<module>/build/Release/<module>.node
+                            const originalRelative = `node_modules/${moduleEntry.name}/build/Release/${entry.name}`;
+                            return createFramework(nodeDir, filePath, file, originalRelative, nodejsDir);
+                          }
+                          return null;
+                        })
+                      );
+                      return fileFrameworks.filter((fw): fw is FrameworkInfo => fw !== null);
+                    } catch {
+                      return [];
+                    }
+                  })
+              );
+              return buildReleaseFrameworks.flat();
+            } catch {
+              return [];
+            }
+          })
+      );
+      frameworks.push(...moduleFrameworks.flat());
+    } catch {
+      // Skip if directory doesn't exist
+    }
+  }
+
+  // Also check root build/Release (for backwards compatibility)
   const buildReleasePath = join(nodejsDir, 'build', 'Release');
   if (existsSync(buildReleasePath)) {
     try {

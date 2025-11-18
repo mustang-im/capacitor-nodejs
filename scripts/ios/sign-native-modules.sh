@@ -74,9 +74,17 @@ FRAMEWORK_PATHS=$(echo "$FRAMEWORK_OUTPUT" | grep "^FRAMEWORK:" | sed 's/^FRAMEW
 embed_framework()
 {
     FRAMEWORK_NAME="$(basename "$1")"
-    mkdir -p "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/"
-    cp -r "$1" "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/"
-    /usr/bin/codesign --force --sign $EXPANDED_CODE_SIGN_IDENTITY --preserve-metadata=identifier,entitlements,flags --timestamp=none "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/$FRAMEWORK_NAME"
+    DEST_PATH="$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/$FRAMEWORK_NAME"
+    
+    # Check if source and destination are the same (already in place)
+    if [ "$1" = "$DEST_PATH" ]; then
+        echo "Framework already in place: $FRAMEWORK_NAME"
+    else
+        mkdir -p "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/"
+        cp -r "$1" "$TARGET_BUILD_DIR/$FRAMEWORKS_FOLDER_PATH/"
+    fi
+    
+    /usr/bin/codesign --force --sign $EXPANDED_CODE_SIGN_IDENTITY --preserve-metadata=identifier,entitlements,flags --timestamp=none "$DEST_PATH"
 }
 
 # Embed frameworks found by the script

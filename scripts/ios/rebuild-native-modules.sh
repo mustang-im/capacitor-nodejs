@@ -48,13 +48,12 @@ find "$NODEJS_DIR/" -name "*.framework" -type d -delete 2>/dev/null || true
 find "$NODEJS_DIR/" -path "*/.bin/*" -delete 2>/dev/null || true
 find "$NODEJS_DIR/" -name ".bin" -type d -delete 2>/dev/null || true
 
-# Get the nodejs-mobile-gyp location (set by build phase)
+# Get the nodejs-mobile-gyp location and headers directory (set by build phase)
 NODEJS_MOBILE_GYP_BIN_FILE="${NODEJS_MOBILE_GYP_BIN_FILE}"
-
-# Get the nodejs headers directory (set by build phase, or use static path)
+# nodejs-mobile-gyp expects npm_config_nodedir to point to libnode directory (without include/node)
 NODEJS_HEADERS_DIR="${NODEJS_HEADERS_DIR:-}"
 if [ -z "$NODEJS_HEADERS_DIR" ]; then
-  NODEJS_HEADERS_DIR="$( cd "$PROJECT_DIR" && cd ../../node_modules/capacitor-nodejs/ios/libnode/include/node && pwd )"
+  NODEJS_HEADERS_DIR="$( cd "$PROJECT_DIR" && cd ../../node_modules/capacitor-nodejs/ios/libnode && pwd )"
 fi
 
 # Adds the original project .bin to the path. It's a workaround
@@ -74,11 +73,8 @@ find "$NODEJS_DIR/node_modules" -name "package.json" -type f | while read -r pkg
     if [ ! -f "$pkgjson.bak" ]; then
       cp "$pkgjson" "$pkgjson.bak" 2>/dev/null || true
     fi
-    # Replace node-gyp references with nodejs-mobile-gyp
-    # Be careful to only replace standalone "node-gyp" commands, not "node-gyp-build" or other packages
-    # Use node to execute the script since it's a .js file
+    # Replace node-gyp references with nodejs-mobile-gyp (avoid replacing node-gyp-build)
     sed -i.tmp "s|\"node-gyp\"|\"node $NODEJS_MOBILE_GYP_BIN_FILE\"|g" "$pkgjson" 2>/dev/null || true
-    # Only replace "node-gyp " (with space) or "node-gyp\"" (with quote) to avoid replacing "node-gyp-build"
     sed -i.tmp "s|node-gyp |node $NODEJS_MOBILE_GYP_BIN_FILE |g" "$pkgjson" 2>/dev/null || true
     sed -i.tmp "s|node-gyp\"|node $NODEJS_MOBILE_GYP_BIN_FILE\"|g" "$pkgjson" 2>/dev/null || true
     sed -i.tmp "s|node-gyp'|node $NODEJS_MOBILE_GYP_BIN_FILE'|g" "$pkgjson" 2>/dev/null || true
@@ -90,7 +86,7 @@ done
 pushd "$NODEJS_DIR/" > /dev/null
 
 if [ "$PLATFORM_NAME" == "iphoneos" ]; then
-  GYP_DEFINES="OS=ios" \
+  GYP_DEFINES="OS=ios iossim=0" \
   NODE_GYP="$NODEJS_MOBILE_GYP_BIN_FILE" \
   npm_config_nodedir="$NODEJS_HEADERS_DIR" \
   npm_config_node_gyp="$NODEJS_MOBILE_GYP_BIN_FILE" \
@@ -100,7 +96,7 @@ if [ "$PLATFORM_NAME" == "iphoneos" ]; then
   npm_config_arch="arm64" \
   npm --verbose rebuild --build-from-source
 else
-  GYP_DEFINES="OS=ios" \
+  GYP_DEFINES="OS=ios iossim=1" \
   NODE_GYP="$NODEJS_MOBILE_GYP_BIN_FILE" \
   npm_config_nodedir="$NODEJS_HEADERS_DIR" \
   npm_config_node_gyp="$NODEJS_MOBILE_GYP_BIN_FILE" \
@@ -118,4 +114,3 @@ find "$NODEJS_DIR/node_modules" -name "package.json.bak" -type f | while read -r
   pkgjson="${bakfile%.bak}"
   mv "$bakfile" "$pkgjson" 2>/dev/null || true
 done
-

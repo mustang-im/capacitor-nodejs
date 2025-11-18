@@ -264,8 +264,8 @@ async function main(): Promise<void> {
     const rebuildShellScriptPath = getRebuildShellScriptPath();
     const signShellScriptPath = getSignShellScriptPath();
 
-    // Get Node.js headers path (relative to Xcode project, using ${PROJECT_DIR} for absolute resolution)
-    const nodeHeadersPath = '${PROJECT_DIR}/../../node_modules/capacitor-nodejs/ios/libnode/include/node';
+    // Get Node.js headers path (nodejs-mobile-gyp expects libnode directory, not include/node)
+    const nodeHeadersPath = '${PROJECT_DIR}/../../node_modules/capacitor-nodejs/ios/libnode';
 
     // Create build phase scripts that set environment variables and execute external scripts
     // These scripts point to the external .sh files instead of embedding content
@@ -292,24 +292,6 @@ async function main(): Promise<void> {
           }
         );
         writeFileSync(pbxprojFile, project.writeSync());
-        
-        // Fix NODEJS_HEADERS_DIR if it's the rebuild phase (xcode package may have modified it)
-        if (phaseName === 'Build Node.js Mobile Native Modules') {
-          pbxprojContent = readFileSync(pbxprojFile, 'utf8');
-          let fixedContent = pbxprojContent;
-          
-          // Fix NODEJS_HEADERS_DIR: The xcode package may write it as: NODEJS_HEADERS_DIR=\"../../node_modules/...\"
-          // We need to replace it with: NODEJS_HEADERS_DIR=\"${PROJECT_DIR}/../../node_modules/...\"
-          fixedContent = fixedContent.replace(
-            'NODEJS_HEADERS_DIR=\\"../../node_modules/capacitor-nodejs/ios/libnode/include/node\\"',
-            'NODEJS_HEADERS_DIR=\\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/ios/libnode/include/node\\"'
-          );
-          
-          if (fixedContent !== pbxprojContent) {
-            writeFileSync(pbxprojFile, fixedContent);
-          }
-        }
-        
         console.log(`Added build phase: ${phaseName}`);
     } else {
         // Update existing build phase - find and replace the script content
@@ -331,13 +313,13 @@ async function main(): Promise<void> {
       });
 
       if (updatedContent !== pbxprojContent) {
-          // Fix NODEJS_HEADERS_DIR if updating rebuild phase (before writing)
+          // Fix NODEJS_HEADERS_DIR if updating rebuild phase
           let finalContent = updatedContent;
           if (phaseName === 'Build Node.js Mobile Native Modules') {
-            // Fix NODEJS_HEADERS_DIR
+            // Fix path to use ${PROJECT_DIR} and point to libnode (not include/node)
             finalContent = finalContent.replace(
-              'NODEJS_HEADERS_DIR=\\"../../node_modules/capacitor-nodejs/ios/libnode/include/node\\"',
-              'NODEJS_HEADERS_DIR=\\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/ios/libnode/include/node\\"'
+              /NODEJS_HEADERS_DIR=\\"\.\.\/\.\.\/node_modules\/capacitor-nodejs\/ios\/libnode(?:\/include\/node)?\\"/g,
+              'NODEJS_HEADERS_DIR=\\"${PROJECT_DIR}/../../node_modules/capacitor-nodejs/ios/libnode\\"'
             );
           }
           writeFileSync(pbxprojFile, finalContent);
