@@ -84,6 +84,16 @@ jobs:
           fi
           pod --version
 
+      - name: Add iOS platform
+        run: |
+          cd test-project
+          # Add iOS platform if it doesn't exist
+          if [ ! -d "ios" ]; then
+            yarn cap add ios
+          else
+            echo "iOS platform already exists"
+          fi
+
       - name: Sync Capacitor iOS
         run: |
           cd test-project
