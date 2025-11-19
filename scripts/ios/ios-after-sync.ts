@@ -169,9 +169,9 @@ function createRebuildBuildPhaseScript(nodeGypPath: string, nodeDir: string, nod
     ? nodeHeadersPath.replace(/"/g, '\\"')  // Only escape quotes, preserve ${PROJECT_DIR}
     : escapeShellValue(nodeHeadersPath);
   const escapedShellScriptPath = escapeShellValue(shellScriptPath);
-  
-  // Add plugin's node_modules/.bin to PATH for packages like bufferutil that need node-gyp-build
-  // node-gyp-build is a dependency of this plugin, so use the plugin's node_modules/.bin
+
+  // Add plugin's node_modules/.bin to PATH for packages like bufferutil that need node-gyp-build-mobile
+  // node-gyp-build-mobile is a dependency of this plugin, so use the plugin's node_modules/.bin
   // ${PROJECT_DIR} is an Xcode variable that will be expanded, so don't escape it
   const script = `export NODE_DIR="${escapedNodeDir}"
 export NODEJS_MOBILE_GYP_BIN_FILE="${escapedNodeGypPath}"
@@ -191,7 +191,7 @@ function createSignBuildPhaseScript(nodeDir: string, pluginScriptsPath: string, 
   const escapedNodeDir = escapeShellValue(nodeDir);
   const escapedPluginScriptsPath = escapeShellValue(pluginScriptsPath);
   const escapedShellScriptPath = escapeShellValue(shellScriptPath);
-  
+
   const script = `export NODE_DIR="${escapedNodeDir}"
 export PLUGIN_SCRIPTS_PATH="${escapedPluginScriptsPath}"
 sh "${escapedShellScriptPath}"`;
@@ -207,7 +207,7 @@ async function main(): Promise<void> {
     const foundProjectRoot = await findCapacitorProjectRoot();
     const projectRoot = foundProjectRoot || currentWorkingDir;
     const iosPath = findIOSProjectPath(projectRoot);
-    
+
     if (!iosPath) {
       console.warn(`iOS project not found. Searched from: ${projectRoot}`);
       console.warn('Skipping iOS sync setup.');
@@ -301,10 +301,10 @@ async function main(): Promise<void> {
         // Update existing build phase - find and replace the script content
         // Since the script is now short (just env vars + script call), we can use a simpler approach
         const escapedScript = JSON.stringify(script).slice(1, -1);
-        
+
         // Escape phase names for regex
         const possibleNamesEscaped = possibleNames.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-        
+
         // Match any of the possible phase names and update the shellScript
         // Pattern: UUID /* Phase Name */ = { ... shellScript = "old script" ... };
         const updateRegex = new RegExp(

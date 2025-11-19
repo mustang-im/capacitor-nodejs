@@ -103,7 +103,7 @@
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
-    "node-gyp-build": "^4.8.4",
+    "node-gyp-build-mobile": "^4.6.0-3",
     "nodejs-mobile-gyp": "^0.4.0",
     "xcode": "^3.0.1"
   }
