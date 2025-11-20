@@ -342,10 +342,16 @@ async function main() {
 
   try {
     // Build in temp directory
-    execSync('npm --verbose rebuild --build-from-source', {
+    // Source nvm to ensure npm is available
+    const npmCommand = process.env.HOME
+      ? `source "${process.env.HOME}/.nvm/nvm.sh" 2>/dev/null || true; npm --verbose rebuild --build-from-source`
+      : 'npm --verbose rebuild --build-from-source';
+
+    execSync(npmCommand, {
       cwd: tempBuildDir,
       env,
       stdio: 'inherit',
+      shell: '/bin/bash', // Use bash to support source command
     });
 
     // Copy built .node files back to app bundle
