@@ -25,6 +25,7 @@
   - [Data storage](#data-storage)
 - [Mobile Node.js APIs differences](#mobile-nodejs-apis-differences)
 - [Configuration](#configuration)
+- [iOS Native Modules](#ios-native-modules)
 - [API - Bridge module](#api---bridge-module)
 - [API - Capacitor layer](#api---capacitor-layer)
 
@@ -42,12 +43,14 @@ npx cap sync
 ### Supported Platforms
 
 - [x] Android
-- [ ] IOS _(coming soon)_
+- [x] iOS
 - [x] Using the [`capacitor-community/electron` plugin](https://github.com/capacitor-community/electron):
   - [x] Windows
   - [x] Linux
   - [x] macOS
 - [ ] _Web (maybe in future with WebAssembly?)_
+
+> **📖 iOS Native Modules**: For debugging and troubleshooting iOS native modules, see [iOS Native Modules Guide](./docs/ios-native-modules.md)
 
 ## Examples
 
@@ -555,6 +558,57 @@ export default config;
 ```
 
 </docgen-config>
+
+---
+
+## iOS Native Modules
+
+iOS native modules require special handling during the build process. Native modules (modules with C/C++ bindings) must be:
+
+1. **Built for iOS** using `nodejs-mobile-gyp`
+2. **Converted to frameworks** for proper code signing
+3. **Embedded in the app bundle** and signed with your code signing identity
+
+### Automatic Build Process
+
+The plugin automatically adds two build phases to your Xcode project:
+
+- **Build Node.js Mobile Native Modules**: Rebuilds native modules for iOS
+- **Sign Node.js Mobile Native Modules**: Creates frameworks and signs them
+
+### Native Module Detection
+
+The build system automatically detects native modules by looking for:
+
+- `.gyp` files (e.g., `binding.gyp`) - indicates a module needs to be built from source
+- Pre-built `.node` files in `prebuilds/ios-*` directories
+- Built `.node` files in `build/Release/` directories
+
+### Required Structure
+
+Native modules must follow this structure:
+
+```
+nodejs/
+└── node_modules/
+    └── your-module/
+        ├── binding.gyp          # For source-based modules
+        └── build/
+            └── Release/
+                └── your-module.node/  # Built module (directory)
+                    └── <binary>
+```
+
+### Troubleshooting
+
+For detailed debugging and troubleshooting information, see the [iOS Native Modules Guide](./docs/ios-native-modules.md), which covers:
+
+- Required directory structure
+- Build process flow
+- Debugging techniques
+- Common issues and solutions
+- Framework verification
+- Code signing problems
 
 ---
 
