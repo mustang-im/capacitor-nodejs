@@ -160,23 +160,49 @@ async function findAndCreateFrameworks(nodejsDir: string): Promise<FrameworkInfo
       const entries = await readdir(buildReleasePath, { withFileTypes: true });
       const buildReleaseFrameworks = await Promise.all(
         entries
-          .filter(entry => entry.isDirectory() && entry.name.endsWith('.node'))
+          .filter(entry => {
+            // Handle both .node directories and .node files
+            if (entry.name.endsWith('.node')) {
+              return entry.isDirectory() || entry.isFile();
+            }
+            return false;
+          })
           .map(async (entry) => {
-          const nodeDir = join(buildReleasePath, entry.name);
+          const nodePath = join(buildReleasePath, entry.name);
           try {
-              const files = await readdir(nodeDir);
-              const fileFrameworks = await Promise.all(
-                files.map(async (file) => {
-              const filePath = join(nodeDir, file);
-                  const fileStat = await stat(filePath);
-                  if (fileStat.isFile() && !file.endsWith('.plist') && !file.endsWith('.framework')) {
-                const originalRelative = `build/Release/${entry.name}`;
-                    return createFramework(nodeDir, filePath, file, originalRelative, nodejsDir);
-                  }
-                  return null;
-                })
-              );
-              return fileFrameworks.filter((fw): fw is FrameworkInfo => fw !== null);
+              if (entry.isDirectory()) {
+                // Directory-based .node: contains executable file inside
+                const files = await readdir(nodePath);
+                const fileFrameworks = await Promise.all(
+                  files.map(async (file) => {
+                const filePath = join(nodePath, file);
+                    const fileStat = await stat(filePath);
+                    if (fileStat.isFile() && !file.endsWith('.plist') && !file.endsWith('.framework')) {
+                  const originalRelative = `build/Release/${entry.name}`;
+                      return createFramework(nodePath, filePath, file, originalRelative, nodejsDir);
+                    }
+                    return null;
+                  })
+                );
+                return fileFrameworks.filter((fw): fw is FrameworkInfo => fw !== null);
+              } else if (entry.isFile()) {
+                // File-based .node: the file itself is the binary
+                const fileStat = await stat(nodePath);
+                if (fileStat.isFile() && fileStat.size > 0) {
+                  // Extract package name from the .node filename (e.g., "bufferutil.node" -> "bufferutil")
+                  const packageName = entry.name.replace(/\.node$/, '');
+                  const originalRelative = `build/Release/${entry.name}`;
+                  const framework = await createFramework(
+                    buildReleasePath, // nodeDir is the parent directory for file-based
+                    nodePath, // binaryPath is the file itself
+                    packageName,
+                    originalRelative,
+                    nodejsDir
+                  );
+                  return framework ? [framework] : [];
+                }
+              }
+              return [];
             } catch {
               return [];
             }

@@ -83,10 +83,6 @@ export default defineConfig({
     viteStaticCopy({
       targets: [
         {
-          src: 'ios/rebuild-native-modules.sh',
-          dest: '.',
-        },
-        {
           src: 'ios/sign-native-modules.sh',
           dest: '.',
         },
