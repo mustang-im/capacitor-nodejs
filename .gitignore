@@ -65,3 +65,7 @@ render.experimental.xml
 
 # Android Profiling
 *.hprof
+
+# Libnode files
+android/libnode/
+ios/libnode/
