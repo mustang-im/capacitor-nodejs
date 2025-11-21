@@ -69,3 +69,6 @@ render.experimental.xml
 # Libnode files
 android/libnode/
 ios/libnode/
+
+# Built bridge files
+ios/Plugin/builtin_modules/bridge/package.json
