@@ -3,25 +3,44 @@ require 'json'
 package = JSON.parse(File.read(File.join(__dir__, 'package.json')))
 
 Pod::Spec.new do |s|
-  s.name = 'CapacitorNodejs'
+  s.name = 'AspectCapacitorNodejs'
   s.version = package['version']
   s.summary = package['description']
   s.license = package['license']
   s.homepage = package['repository']['url']
   s.author = package['author']
   s.source = { :git => package['repository']['url'], :tag => s.version.to_s }
-  s.source_files = 'ios/Plugin/**/*.{swift,h,m,c,cc,mm,cpp}'
-  s.resources = 'ios/Plugin/builtin_modules/**/*'
-  s.ios.deployment_target = '12.0'
-  s.dependency 'Capacitor'
+  s.source_files = 'ios/Sources/**/*.{swift,h,m}'
+  s.ios.deployment_target = '14.0'
   s.swift_version = '5.1'
-
-  # Link against NodeMobile framework
-  # The framework is at ios/libnode/NodeMobile.xcframework (relative to podspec location)
-  # The framework is downloaded by the capacitor:sync:before hook before pod install runs
+  
+  s.dependency 'Capacitor'
+  
+  # Preserve the libnode directory
+  s.preserve_paths = 'ios/libnode/**/*'
+  
+  # Vendored frameworks from libnode
   s.vendored_frameworks = 'ios/libnode/NodeMobile.xcframework'
-  s.pod_target_xcconfig = {
-    'FRAMEWORK_SEARCH_PATHS' => '$(inherited) "$(PODS_TARGET_SRCROOT)/ios/libnode"',
-    'OTHER_LDFLAGS' => '$(inherited) -framework "NodeMobile"'
+  
+  # ⭐ Built-in script phases - CocoaPods handles everything!
+  s.script_phase = {
+    :name => 'Build Node.js Mobile Native Modules',
+    :script => '"${PODS_TARGET_SRCROOT}/ios/scripts/rebuild-native-modules.sh"',
+    :execution_position => :before_compile,
+    :shell_path => '/bin/sh'
   }
+  
+  # For multiple phases, use script_phases (plural)
+  s.script_phases = [
+    {
+      :name => 'Build Node.js Mobile Native Modules',
+      :script => '"${PODS_TARGET_SRCROOT}/ios/scripts/rebuild-native-modules.sh"',
+      :execution_position => :before_compile
+    },
+    {
+      :name => 'Sign Node.js Mobile Native Modules',
+      :script => '"${PODS_TARGET_SRCROOT}/ios/scripts/sign-native-modules.sh"',
+      :execution_position => :after_compile
+    }
+  ]
 end
