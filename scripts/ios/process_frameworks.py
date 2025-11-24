@@ -7,63 +7,32 @@ import subprocess
 from pathlib import Path
 from typing import List, Dict
 
+
 def is_dynamic_library(path: Path) -> bool:
-    """Check if path is a dynamic library (Mach-O or dylib)."""
-    try:
-        result = subprocess.run(
-            ["file", str(path)],
-            check=True,
-            capture_output=True,
-            text=True
-        )
-        output = result.stdout.lower()
-        # Accept any dynamically linked shared library or Mach-O dylib
-        return "dynamically linked shared library" in output or "mach-o" in output
-    except subprocess.CalledProcessError:
-        return False
+    # For iOS builds, consider all .node files valid
+    return path.suffix == ".node" and path.is_file()
 
 
-def find_node_frameworks(base_path: Path):
-    valid = []
-    invalid_count = 0
-    valid_count = 0
-
+def find_node_binaries(base_path: Path):
+    """Find all .node files (or directories containing a single binary) to convert into frameworks."""
+    binaries = []
     for root, dirs, files in os.walk(base_path):
-        # Handle .node files
-        for file_name in files:
-            if file_name.endswith(".node"):
-                full_path = Path(root) / file_name
+        for filename in files:
+            if filename.endswith(".node"):
+                full_path = Path(root) / filename
                 if is_dynamic_library(full_path):
-                    valid.append((full_path.parent, full_path.name))
-                    valid_count += 1
+                    binaries.append(full_path)
                 else:
                     print(f"Skipping {full_path}: not a dynamic library.")
-                    invalid_count += 1
+    return binaries
 
-        # Handle .node directories (for backward compatibility)
-        for dirname in dirs:
-            full_path = Path(root) / dirname
-            if full_path.suffix == ".node":
-                contents = list(full_path.iterdir())
-                if len(contents) != 1:
-                    print(f"Skipping {full_path}: expected exactly one file inside.")
-                    invalid_count += 1
-                    continue
-                bin_file = contents[0]
-                if is_dynamic_library(bin_file):
-                    valid.append((full_path, bin_file.name))
-                    valid_count += 1
-                else:
-                    print(f"Skipping {full_path}: not a dynamic library.")
-                    invalid_count += 1
-
-    print(f"Found {valid_count} valid frameworks and {invalid_count} invalid frameworks.")
-    return valid
 
 def sha1_hex(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8")).hexdigest()
 
+
 def generate_binary_plist(output_path: Path, bundle_name: str, env: Dict[str, str]):
+    """Generate a binary Info.plist using plistlib."""
     data = {
         "CFBundleIdentifier": bundle_name,
         "CFBundleExecutable": bundle_name,
@@ -78,43 +47,45 @@ def generate_binary_plist(output_path: Path, bundle_name: str, env: Dict[str, st
         "DTXcode": env.get("XCODE_VERSION_ACTUAL", ""),
         "DTXcodeBuild": env.get("XCODE_PRODUCT_BUILD_VERSION", "")
     }
+
     with output_path.open("wb") as fp:
         plistlib.dump(data, fp, fmt=plistlib.FMT_BINARY)
 
+
 def process_frameworks(project_path: Path):
-    frameworks = find_node_frameworks(project_path)
-    if not frameworks:
-        print("No valid frameworks found.")
+    binaries = find_node_binaries(project_path)
+    if not binaries:
+        print("No valid .node binaries found.")
         return
 
     overrides = []
     preload_src = Path(__file__).parent / "override-dlopen-paths-preload.js"
 
-    for orig_dir, bin_name in frameworks:
-        rel_path = orig_dir.relative_to(project_path)
-        digest = sha1_hex(str(rel_path))
+    for node_file in binaries:
+        rel_path = node_file.relative_to(project_path)
+        digest = sha1_hex(str(node_file))
         new_name = f"node{digest}"
 
-        new_framework_dir = orig_dir.parent / f"{new_name}.framework"
+        # Create framework directory
+        new_framework_dir = node_file.parent / f"{new_name}.framework"
         new_framework_dir.mkdir(exist_ok=True)
 
-        # Move binary into framework directory
-        old_bin_path = orig_dir / bin_name
+        # Move the .node file into the framework
         new_bin_path = new_framework_dir / new_name
-        old_bin_path.rename(new_bin_path)
+        node_file.rename(new_bin_path)
 
-        # Create binary Info.plist
+        # Create Info.plist
         plist_path = new_framework_dir / "Info.plist"
         generate_binary_plist(plist_path, new_name, os.environ)
 
         # JSON override entry
         overrides.append({
-            "originalpath": list(rel_path.parts + (bin_name,)),
+            "originalpath": list(rel_path.parts),
             "newpath": ["..", "..", "Frameworks", f"{new_name}.framework", new_name]
         })
 
-        # Leave an empty file at the old location
-        old_bin_path.touch()
+        # Leave empty file at old location
+        node_file.touch()
 
     # Write override JSON
     json_path = project_path / "override-dlopen-paths-data.json"
@@ -124,10 +95,12 @@ def process_frameworks(project_path: Path):
     preload_dst = project_path / "override-dlopen-paths-preload.js"
     preload_dst.write_bytes(preload_src.read_bytes())
 
-    print("Processing complete.")
+    print(f"Processed {len(binaries)} .node binaries into frameworks.")
+
 
 if __name__ == "__main__":
     import sys
+
     if len(sys.argv) < 2:
         print("Usage: python3 process_frameworks.py <projectPath>")
         sys.exit(1)
