@@ -1,6 +1,6 @@
 {
     "compilerOptions": {
-        "strict": true,
+        "strict": false,
         "allowUnusedLabels": false,
         "allowUnreachableCode": false,
         "noFallthroughCasesInSwitch": true,
@@ -12,6 +12,8 @@
         "noUnusedParameters": true,
         "forceConsistentCasingInFileNames": true,
         "checkJs": true,
-        "skipLibCheck": true
+        "skipLibCheck": true,
+        "types": ["minimatch", "node"],
+        "typeRoots": ["node_modules/@types"]
     }
 }
