@@ -71,7 +71,7 @@ begin
   target = project.targets.find { |t| t.product_type == "com.apple.product-type.application" }
   raise "App target not found" unless target
 
-  scripts_base = "${PODS_ROOT}/../../node_modules/capacitor-nodejs/ios/scripts"
+  scripts_base = "${PODS_ROOT}/../node_modules/capacitor-nodejs/ios/scripts"
 
   def add_phase(target, name, script)
     existing = target.shell_script_build_phases.find { |p| p.name == name }
