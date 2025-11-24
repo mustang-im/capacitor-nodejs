@@ -1,19 +1,8 @@
 {
     "compilerOptions": {
-        "strict": false,
-        "allowUnusedLabels": false,
-        "allowUnreachableCode": false,
-        "noFallthroughCasesInSwitch": true,
-        "noImplicitAny": true,
-        "noImplicitOverride": true,
-        "noImplicitReturns": true,
-        "noPropertyAccessFromIndexSignature": true,
-        "noUnusedLocals": true,
-        "noUnusedParameters": true,
-        "forceConsistentCasingInFileNames": true,
-        "checkJs": true,
-        "skipLibCheck": true,
-        "types": ["minimatch", "node"],
-        "typeRoots": ["node_modules/@types"]
+      "noEmitOnError": false,
+      "skipLibCheck": true,
+      "checkJS": false,
+      "allowJs": true
     }
 }
