@@ -1,0 +1,93 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers on tags starting with 'v'
+  workflow_dispatch: # Allows manual triggering
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Build package
+        run: yarn build
+
+      - name: Pack package
+        run: yarn pack
+
+      - name: Get version from package.json
+        id: package-version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Package version: $VERSION"
+
+      - name: Get tag name
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TAG_NAME="v${{ steps.package-version.outputs.version }}"
+          else
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "tag=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "Tag name: $TAG_NAME"
+
+      - name: Create release archive
+        run: |
+          PACKAGE_NAME=$(node -p "require('./package.json').name")
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          ARCHIVE_NAME="${PACKAGE_NAME}-${PACKAGE_VERSION}.tgz"
+          
+          # Find the packed file (yarn pack creates it in the current directory)
+          # Exclude bridge.tgz which is created by pack:bridge script
+          PACKED_FILE=$(ls -1 *.tgz 2>/dev/null | grep -v bridge.tgz | grep "^${PACKAGE_NAME}-" | head -1)
+          
+          if [ -z "$PACKED_FILE" ]; then
+            echo "Error: Could not find packed file matching pattern ${PACKAGE_NAME}-*.tgz"
+            ls -la *.tgz || echo "No .tgz files found"
+            exit 1
+          fi
+          
+          # Rename to ensure consistent naming
+          if [ "$PACKED_FILE" != "$ARCHIVE_NAME" ]; then
+            mv "$PACKED_FILE" "$ARCHIVE_NAME"
+          fi
+          
+          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
+          echo "Created archive: $ARCHIVE_NAME"
+          ls -lh "$ARCHIVE_NAME"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE_NAME }}
+          path: ${{ env.ARCHIVE_NAME }}
+          retention-days: 90
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: Release ${{ steps.tag.outputs.tag }}
+          files: |
+            ${{ env.ARCHIVE_NAME }}
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.tag, 'beta') || contains(steps.tag.outputs.tag, 'alpha') || contains(steps.tag.outputs.tag, 'rc') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
