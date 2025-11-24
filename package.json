@@ -43,9 +43,9 @@
     "prettier": "prettier \"**/*.{css,html,ts,js,java}\" --plugin=prettier-plugin-java",
     "swiftlint": "node-swiftlint",
     "docgen": "docgen --api NodeJSInterface --output-readme README.md --output-json dist/docs.json",
-    "build-bridge": "tsc --project bridge/tsconfig.json && rollup -c bridge/rollup.config.mjs && rimraf ./bridge/build",
-    "build-electron": "tsc --project electron/tsconfig.json && rollup -c electron/rollup.config.mjs && rimraf ./electron/build",
-    "build": "npm run clean && npm run docgen && tsc && rollup -c rollup.config.mjs && npm run build-electron && npm run build-bridge",
+    "build-bridge": "tsc --project bridge/tsconfig.json --noEmitOnError false && rollup -c bridge/rollup.config.mjs && rimraf ./bridge/build",
+    "build-electron": "tsc --project electron/tsconfig.json --noEmitOnError false && rollup -c electron/rollup.config.mjs && rimraf ./electron/build",
+    "build": "npm run clean && npm run docgen && tsc --noEmitOnError false && rollup -c rollup.config.mjs && npm run build-electron && npm run build-bridge",
     "clean": "rimraf ./dist",
     "watch": "tsc --watch",
     "pack:bridge": "cd assets/types/bridge && npm pack --pack-destination ../ && mv ../types-bridge-*.tgz ../bridge.tgz",
@@ -64,6 +64,7 @@
     "@ionic/swiftlint-config": "^2.0.0",
     "@rollup/plugin-commonjs": "^28.0.3",
     "@rollup/plugin-node-resolve": "^16.0.1",
+    "@types/minimatch": "^6.0.0",
     "electron": "^26.2.2",
     "eslint": "^8.57.0",
     "prettier": "^3.4.2",
@@ -73,7 +74,7 @@
     "rollup-plugin-copy": "^3.5.0",
     "rollup-plugin-dts": "^6.2.1",
     "swiftlint": "^2.0.0",
-    "typescript": "^4.5.0"
+    "typescript": "^5.3.3"
   },
   "peerDependencies": {
     "@capacitor/core": ">=7.0.0",
