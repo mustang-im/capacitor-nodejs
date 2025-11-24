@@ -21,26 +21,5 @@ Pod::Spec.new do |s|
   
   # Vendored frameworks from libnode
   s.vendored_frameworks = 'ios/libnode/NodeMobile.xcframework'
-  
-  # ⭐ Built-in script phases - CocoaPods handles everything!
-  s.script_phase = {
-    :name => 'Build Node.js Mobile Native Modules',
-    :script => '"${PODS_TARGET_SRCROOT}/ios/scripts/rebuild-native-modules.sh"',
-    :execution_position => :before_compile,
-    :shell_path => '/bin/sh'
-  }
-  
-  # For multiple phases, use script_phases (plural)
-  s.script_phases = [
-    {
-      :name => 'Build Node.js Mobile Native Modules',
-      :script => '"${PODS_TARGET_SRCROOT}/ios/scripts/rebuild-native-modules.sh"',
-      :execution_position => :before_compile
-    },
-    {
-      :name => 'Sign Node.js Mobile Native Modules',
-      :script => '"${PODS_TARGET_SRCROOT}/ios/scripts/sign-native-modules.sh"',
-      :execution_position => :after_compile
-    }
-  ]
+
 end
