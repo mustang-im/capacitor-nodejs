@@ -393,10 +393,10 @@ Java_net_hampoelz_capacitor_nodejs_NodeProcess_nativeStart(
     // Add performance flags
     optimizedArgs.push_back("--no-warnings");              // Skip warning overhead
     optimizedArgs.push_back("--no-deprecation");           // Skip deprecation warnings
-    optimizedArgs.push_back("--max-old-space-size=512");   // Limit memory for mobile
+    // optimizedArgs.push_back("--max-old-space-size=512");   // Limit memory for mobile
     optimizedArgs.push_back("--optimize-for-size");        // Optimize for mobile
-    optimizedArgs.push_back("--no-lazy");                  // Compile upfront
-    optimizedArgs.push_back("--jitless");                  // Disable JIT on some Android devices
+    // optimizedArgs.push_back("--no-lazy");                  // Compile upfront
+    // optimizedArgs.push_back("--jitless");                  // Disable JIT on some Android devices
 
     // Calculate total buffer size needed for contiguous memory
     size_t totalSize = 0;
