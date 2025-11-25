@@ -32,20 +32,36 @@ def sha1_hex(text: str) -> str:
 
 
 def generate_binary_plist(output_path: Path, bundle_name: str, env: Dict[str, str]):
-    """Generate a binary Info.plist using plistlib."""
+    """Generate a complete iOS-style binary Info.plist matching the expected template."""
+
+    def env_get(key, default=""):
+        return env.get(key, default)
+
     data = {
-        "CFBundleIdentifier": bundle_name,
+        "BuildMachineOSBuild": env_get("MAC_OS_X_PRODUCT_BUILD_VERSION"),
+        "CFBundleDevelopmentRegion": "en",
         "CFBundleExecutable": bundle_name,
+        "CFBundleIdentifier": f"com.janeasystems.{bundle_name}",
+        "CFBundleInfoDictionaryVersion": "6.0",
         "CFBundleName": bundle_name,
         "CFBundlePackageType": "FMWK",
-        "CFBundleVersion": env.get("MAC_OS_X_PRODUCT_BUILD_VERSION", "1.0"),
-        "CFBundleShortVersionString": env.get("SDK_VERSION", "1.0"),
-        "DTCompiler": env.get("DEFAULT_COMPILER", ""),
-        "DTPlatformBuild": env.get("PLATFORM_PRODUCT_BUILD_VERSION", ""),
-        "DTSDKBuild": env.get("SDK_PRODUCT_BUILD_VERSION", ""),
-        "DTSDKName": env.get("SDK_NAME", ""),
-        "DTXcode": env.get("XCODE_VERSION_ACTUAL", ""),
-        "DTXcodeBuild": env.get("XCODE_PRODUCT_BUILD_VERSION", "")
+        "CFBundleShortVersionString": "1.0",
+        "CFBundleSupportedPlatforms": ["iPhoneOS"],
+        "CFBundleVersion": "1",
+
+        "DTCompiler": env_get("DEFAULT_COMPILER"),
+        "DTPlatformBuild": env_get("PLATFORM_PRODUCT_BUILD_VERSION"),
+        "DTPlatformName": "iphoneos",
+        "DTPlatformVersion": env_get("SDK_VERSION"),
+        "DTSDKBuild": env_get("SDK_PRODUCT_BUILD_VERSION"),
+        "DTSDKName": env_get("SDK_NAME"),
+        "DTXcode": env_get("XCODE_VERSION_ACTUAL"),
+        "DTXcodeBuild": env_get("XCODE_PRODUCT_BUILD_VERSION"),
+
+        "MinimumOSVersion": "15.0",
+        "NSHumanReadableCopyright": "",
+        "UIDeviceFamily": [1, 2],
+        "UIRequiredDeviceCapabilities": ["arm64"],
     }
 
     with output_path.open("wb") as fp:
