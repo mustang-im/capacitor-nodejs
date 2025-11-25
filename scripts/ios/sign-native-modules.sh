@@ -68,9 +68,11 @@ for fw in $FRAMEWORKS; do
 done
 
 echo "Cleaning up temporary build artifacts..."
-find "$NODE_PROJECT_PATH" -path "*/.deps/*" -delete
-find "$NODE_PROJECT_PATH" -name ".deps" -type d -delete
-find "$NODE_PROJECT_PATH" -path "*/*.framework/*" -delete
+find "$NODE_PROJECT_PATH" -name "*.o" -type f -delete
+find "$NODE_PROJECT_PATH" -name "*.a" -type f -delete
 find "$NODE_PROJECT_PATH" -name "*.framework" -type d -delete
+find "$NODE_PROJECT_PATH" -path "*/*.framework/*" -delete
+find "$NODE_PROJECT_PATH" -path "*/.bin/*" -delete
+find "$NODE_PROJECT_PATH" -name ".bin" -type d -delete
 
 echo "Native modules signing completed."
