@@ -99,6 +99,14 @@ for module in "$NODE_PROJECT_PATH/node_modules/"*/ ; do
       --arch="$TARGET_ARCH" \
       --platform="ios" \
       --directory="$module"
+
+    # Convert any .node bundles to shared libraries
+    for nodeFile in "$module"*.node; do
+        if [ -f "$nodeFile" ]; then
+            echo "  - Converting $(basename "$nodeFile") to shared library"
+            node "$PATCH_SCRIPT" "$nodeFile" convert
+        fi
+    done
   fi
 done
 

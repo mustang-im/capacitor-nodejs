@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, writeFileSync, copyFileSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, copyFileSync, statSync } from 'fs';
 
 function patchBindingGyp(bindingGypPath) {
     if (!existsSync(bindingGypPath)) return;
@@ -81,14 +81,45 @@ function patchPackageJSON_preNodeGyp_modulePath(filePath) {
     }
 }
 
+// Convert MH_BUNDLE to MH_DYLIB
+function convertBundleToSharedLibrary(filePath) {
+    if (!existsSync(filePath)) return;
+
+    try {
+        const stat = statSync(filePath);
+        if (!stat.isFile() || stat.size < 32) return;
+
+        const buffer = Buffer.from(readFileSync(filePath));
+
+        // Check magic number (0xfeedfacf for 64-bit)
+        if (buffer.length < 32 || buffer.readUInt32LE(0) !== 0xfeedfacf) {
+            return;
+        }
+
+        // Get filetype (offset 12 for 64-bit)
+        const filetype = buffer.readUInt32LE(12);
+
+        // If it's a bundle (8), change to shared library (6)
+        if (filetype === 8) {
+            buffer.writeUInt32LE(6, 12); // MH_DYLIB
+            writeFileSync(filePath, buffer);
+            console.log(`Converted bundle to shared library: ${filePath}`);
+        }
+    } catch (error) {
+        // Silently fail
+    }
+}
+
 // --- Main Execution Logic ---
 
 const filePath = process.argv[2];
+const operation = process.argv[3]; // Optional third argument for special operations
 
 if (!filePath) {
     console.error('Error: Please provide a file path.');
-    console.error('Usage: node patch-binding-gyp.js <file_path>');
-    console.error('Supported file types: binding.gyp, package.json');
+    console.error('Usage: node patch-binding-gyp.js <file_path> [operation]');
+    console.error('Supported file types: binding.gyp, package.json, .node');
+    console.error('Operations: convert (for .node files)');
     process.exit(1);
 }
 
@@ -96,8 +127,12 @@ if (filePath.endsWith('binding.gyp')) {
     patchBindingGyp(filePath);
 } else if (filePath.endsWith('package.json')) {
     patchPackageJSON_preNodeGyp_modulePath(filePath);
+} else if (filePath.endsWith('.node')) {
+    if (operation === 'convert') {
+        convertBundleToSharedLibrary(filePath);
+    }
 } else {
     console.error(`Error: Unsupported file type "${filePath}".`);
-    console.error('Supported file types: binding.gyp, package.json');
+    console.error('Supported file types: binding.gyp, package.json, .node');
     process.exit(1);
 }
