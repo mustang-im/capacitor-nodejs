@@ -5,13 +5,18 @@ ext {
     androidxEspressoCoreVersion = project.hasProperty('androidxEspressoCoreVersion') ? rootProject.ext.androidxEspressoCoreVersion : '3.6.1'
 }
 
+// Dynamically set the android ABI
+def buildPropertiesFile = file("build.properties")
+def buildProperties = new Properties()
+buildProperties.load(new FileInputStream(buildPropertiesFile))
+
 buildscript {
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath 'com.android.tools.build:gradle:8.7.2'
+        classpath 'com.android.tools.build:gradle:8.12.1'
     }
 }
 
@@ -33,7 +38,8 @@ android {
             }
         }
         ndk {
-            abiFilters "armeabi-v7a", "arm64-v8a", "x86_64"
+            //noinspection ChromeOsAbiSupport
+            abiFilters buildProperties.getProperty("ANDROID_ABI").split(",")
         }
     }
     buildTypes {

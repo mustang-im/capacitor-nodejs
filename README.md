@@ -515,10 +515,12 @@ The following functions are only available on POSIX platforms, so they are unava
 
 These config values are available:
 
-| Prop            | Type                            | Description                                                                                                                                                                                                                               | Default               | Since |
-| --------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ----- |
-| **`nodeDir`**   | <code>string</code>             | Relative path of the integrated Node.js project based on the Capacitor webdir.                                                                                                                                                            | <code>"nodejs"</code> | 1.0.0 |
-| **`startMode`** | <code>'auto' \| 'manual'</code> | Startup mode of the Node.js engine. The following values are accepted: **`auto`**: The Node.js engine starts automatically when the application is launched. **`manual`**: The Node.js engine is started via the `NodeJS.start()` method. | <code>"auto"</code>   | 1.0.0 |
+| Prop                       | Type                                                | Description                                                                                                                                                                                                                               | Default                                                                                                                     | Since |
+| -------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----- |
+| **`nodeDir`**              | <code>string</code>                                 | Relative path of the integrated Node.js project based on the Capacitor webdir.                                                                                                                                                            | <code>"nodejs"</code>                                                                                                       | 1.0.0 |
+| **`startMode`**            | <code>'auto' \| 'manual'</code>                     | Startup mode of the Node.js engine. The following values are accepted: **`auto`**: The Node.js engine starts automatically when the application is launched. **`manual`**: The Node.js engine is started via the `NodeJS.start()` method. | <code>"auto"</code>                                                                                                         | 1.0.0 |
+| **`androidLibNode`**       | <code>string</code>                                 | URL or local absolute path of the libnode to be used for Android                                                                                                                                                                          | <code>"https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-android.zip"</code> |       |
+| **`androidArchitectures`** | <code>Array&lt;'arm' \| 'arm64' \| 'x64'&gt;</code> | Libnode architectures to be included in the APK                                                                                                                                                                                           | <code>["arm", "arm64", "x64"]</code>                                                                                        |       |
 
 ### Examples
 
@@ -529,7 +531,9 @@ In `capacitor.config.json`:
   "plugins": {
     "CapacitorNodeJS": {
       "nodeDir": "custom-nodejs",
-      "startMode": "manual"
+      "startMode": "manual",
+      "androidLibNode": "users/john/documents/libnode",
+      "androidArchitectures": ["arm"]
     }
   }
 }
@@ -547,6 +551,8 @@ const config: CapacitorConfig = {
     CapacitorNodeJS: {
       nodeDir: "custom-nodejs",
       startMode: "manual",
+      androidLibNode: "users/john/documents/libnode",
+      androidArchitectures: ["arm"],
     },
   },
 };
